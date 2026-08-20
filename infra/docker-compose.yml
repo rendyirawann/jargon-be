@@ -1,0 +1,87 @@
+# =====================================================================
+# Database saja — untuk pengembangan lokal.
+#
+# Dipakai `dev.bat`, ketika API, dashboard, dan aplikasi dijalankan
+# LANGSUNG di mesin (cargo run / php artisan serve / flutter run) dan
+# hanya PostgreSQL yang perlu container. Itu alur kerja yang tepat saat
+# sedang mengubah kode: hot reload bekerja, tidak ada image yang harus
+# dibangun ulang setiap kali menyimpan berkas.
+#
+# UNTUK MENJALANKAN SELURUH SISTEM DALAM CONTAINER — termasuk aplikasi
+# Jargon GO, dashboard, dan nginx penyatu — pakai compose di AKAR
+# repositori:
+#
+#     setup.bat                       (sekali, membuat .env)
+#     docker compose up -d --build
+#     buka http://localhost
+#
+# Dua berkas ini sengaja tidak digabung: yang di akar membangun image
+# dari kode, yang ini tidak membangun apa pun. Menyatukannya berarti
+# `docker compose up postgres` ikut memicu kompilasi Rust dan Flutter.
+# =====================================================================
+
+name: jargon-dev-db
+
+services:
+  postgres:
+    # Image resmi pgvector. Ekstensi `vector` WAJIB — migrasi 0001
+    # menjalankan CREATE EXTENSION vector dan face_embeddings memakai
+    # tipe VECTOR(512). Di Windows pgvector tidak punya installer resmi
+    # dan harus dikompilasi; itu sebabnya container ini ada.
+    image: pgvector/pgvector:pg17
+    container_name: jargon-dev-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: absensi
+      POSTGRES_USER: absensi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-absensi}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=256MB
+      # Partisi bulanan pada `attendances` berarti banyak tabel; nilai
+      # bawaan max_locks_per_transaction terlalu kecil saat satu query
+      # menyentuh banyak partisi sekaligus.
+      - -c
+      - max_locks_per_transaction=256
+      - -c
+      - timezone=Asia/Jakarta
+      - -c
+      - log_min_duration_statement=1000
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U absensi -d absensi"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: jargon-dev-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  # Nama volume berbeda dari compose di akar (`jargon-go_postgres-data`),
+  # sehingga data pengembangan dan data container tidak saling menimpa.
+  postgres-data:
+  redis-data:

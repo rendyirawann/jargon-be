@@ -1,0 +1,34 @@
+# ---------------------------------------------------------------------
+# Rahasia. TIDAK boleh ikut ter-commit: isinya kunci yang menentukan
+# siapa boleh masuk ke pemasangan ini. Yang dibagikan .env.example, dan
+# setiap pemasangan membangkitkan rahasianya sendiri lewat setup.bat /
+# ./setup.sh
+# ---------------------------------------------------------------------
+.env
+.env.local
+api/.env
+admin/.env
+admin/.env.backup
+
+# Artefak build
+api/target/
+admin/vendor/
+admin/node_modules/
+admin/public/build/
+
+# Data runtime — milik volume, bukan repositori
+api/storage/
+admin/storage/logs/*
+admin/storage/framework/cache/*
+admin/storage/framework/sessions/*
+admin/storage/framework/views/*
+admin/storage/app/public/*
+admin/bootstrap/cache/*
+!admin/storage/**/.gitignore
+
+# Berkas kerja
+*.log
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store

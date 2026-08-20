@@ -1,0 +1,25 @@
+# vendor/ dibangun ulang di dalam image oleh composer. Menyalin yang lokal
+# membuat build context ratusan MB dan berisiko membawa dependensi dev.
+vendor/
+node_modules/
+
+# Rahasia mesin lokal. Nilai untuk container datang dari environment
+# compose, bukan dari berkas ini — menyalinnya berarti kredensial laptop
+# Anda ikut terbawa ke image yang dibagikan.
+.env
+.env.backup
+
+# Data runtime: log, cache, sesi, berkas yang diunggah. Semuanya milik
+# volume, bukan image.
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/app/public/*
+bootstrap/cache/*
+
+.git/
+.idea/
+.vscode/
+tests/
+*.md

@@ -1,0 +1,282 @@
+Jargon GO - menjalankan lingkungan pengembangan
+===============================================
+
+SATU PERINTAH
+-------------
+  dev.bat
+
+Membuka satu jendela Windows Terminal berisi tab:
+
+  DB     PostgreSQL + Redis (docker compose)   :5432 :6379
+  API    Rust / Axum + Swagger UI              :8080
+  Admin  Dashboard Laravel                     :8000
+  Web    Aplikasi Jargon GO di browser         :5000
+  Buka   membuka Swagger + dashboard, lalu menutup diri
+
+Pilihan (boleh digabung):
+
+  dev.bat noweb        tanpa tab Web (sedang memakai emulator Android)
+  dev.bat nodb         tanpa tab DB (PostgreSQL dijalankan sendiri)
+  dev.bat nodb noweb   keduanya
+  dev.bat web          HANYA tab Web
+  dev.bat stop         hentikan semua yang sedang berjalan
+  dev.bat dryrun       cetak baris perintah wt, jangan jalankan
+
+Tab DB dilewati otomatis bila sudah ada yang mendengarkan di port 5432 -
+menjalankan docker compose di atasnya hanya menghasilkan galat "port is
+already allocated" yang menyesatkan.
+
+Bila dev.bat diklik-ganda dari Explorer, jendelanya ditahan di akhir.
+Tanpa itu, jendela tertutup begitu skrip selesai - beserta pesan galat
+apa pun yang baru tercetak, sehingga kegagalan terlihat seperti "tidak
+terjadi apa-apa".
+
+
+HARUS PAKAI DOCKER?
+-------------------
+Yang butuh Docker hanya PostgreSQL, dan itu karena satu hal: ekstensi
+pgvector.
+
+Migrasi 0001 menjalankan CREATE EXTENSION vector, dan tabel
+face_embeddings memakai tipe VECTOR(512). Tanpa pgvector, API berhenti
+saat migrasi - tidak ada jalan memutar di sisi aplikasi.
+
+Di Windows pgvector TIDAK punya installer resmi; harus dikompilasi dengan
+Visual Studio Build Tools. Image pgvector/pgvector:pg17 sudah memuatnya,
+jadi Docker adalah jalur termudah - bukan keharusan arsitektur.
+
+  A. DENGAN DOCKER (disarankan)
+     Buka Docker Desktop, tunggu "Engine running", lalu: dev.bat
+     Tidak ada langkah lain.
+
+  B. TANPA DOCKER
+     1. Pasang PostgreSQL 17 untuk Windows dari enterprisedb.com
+
+     2. Kompilasi pgvector. Buka "x64 Native Tools Command Prompt for VS":
+
+          set "PGROOT=C:\Program Files\PostgreSQL\17"
+          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+          cd pgvector
+          nmake /F Makefile.win
+          nmake /F Makefile.win install
+
+     3. Buat role dan database yang cocok dengan DATABASE_URL:
+
+          psql -U postgres -c "CREATE ROLE absensi LOGIN PASSWORD 'absensi';"
+          psql -U postgres -c "CREATE DATABASE absensi OWNER absensi;"
+          psql -U postgres -d absensi -c "CREATE EXTENSION vector;"
+
+     4. Redis boleh dilewati. REDIS_URL bertipe opsional di API; yang mati
+        hanyalah rate limit dan anti-replay nonce. Kosongkan REDIS_URL di
+        jargon-be\api\.env bila tidak dipakai.
+
+     5. Jalankan:  dev.bat nodb
+
+  Periksa kesiapan database kapan saja:
+        powershell -File scripts\check-db.ps1
+
+  Skrip itu memeriksa port, kredensial, dan pgvector - lalu mengaktifkan
+  ekstensinya sendiri bila sudah terpasang tetapi belum di-enable.
+
+
+MENGAPA TIDAK SATU TAB SAJA
+---------------------------
+Keempatnya proses yang terus berjalan dan mencetak lognya sendiri.
+Menjejalkannya ke satu jendela berarti log saling menimpa, dan tidak ada
+cara menghentikan satu service tanpa mematikan yang lain. Yang bisa
+dilakukan - dan sudah dilakukan - adalah menyatukannya dalam satu JENDELA
+sebagai tab-tab, dijalankan satu perintah.
+
+
+URUTAN START TIDAK PERLU DIATUR
+-------------------------------
+Tiap tab menunggu apa yang dibutuhkannya sebelum mulai:
+
+  API    menunggu PostgreSQL :5432   (migrasi jalan otomatis saat start)
+  Admin  menunggu API :8080          (dashboard menulis lewat API)
+  Web    menunggu API :8080          (agar layar login tidak langsung galat)
+
+Penantian dibatasi waktu lalu tetap lanjut, sehingga penyebab sebenarnya
+(mis. Docker belum jalan) tetap terlihat sebagai galat aslinya, bukan
+sebagai tab yang menggantung selamanya.
+
+
+ALAMAT
+------
+  Jargon GO   http://127.0.0.1:5000
+  Swagger     http://127.0.0.1:8080/docs
+  Health      http://127.0.0.1:8080/health
+  Dashboard   http://127.0.0.1:8000/admin/login
+
+  Login pertama: superadmin / Superadmin#2026  (ganti segera)
+
+Pakai 127.0.0.1, bukan localhost. Keduanya menunjuk mesin yang sama, tetapi
+bagi CORS keduanya ORIGIN YANG BERBEDA - halaman di 127.0.0.1:5000 yang
+memanggil localhost:8080 dihitung lintas origin oleh browser.
+
+
+ISI TIAP TAB (bila ingin menjalankan sendiri)
+---------------------------------------------
+Semua relatif terhadap akar repositori. Tiap skrip memeriksa perkakas yang
+dibutuhkannya lebih dulu dan menjelaskan bila ada yang kurang.
+
+  scripts\run-db.bat      docker compose -f infra/docker-compose.yml
+                          up postgres redis
+
+  scripts\run-api.bat     menunggu :5432, lalu cargo run
+                          Menyalin .env dari .env.example bila belum ada.
+
+  scripts\run-admin.bat   menunggu :8080, lalu php artisan serve
+                          Menjalankan composer install bila vendor/ kosong.
+
+  scripts\run-app.bat     menunggu :8080, lalu jargon-fe\run-web.bat
+
+  scripts\wait-port.bat   penunggu port, dipakai skrip di atas
+  scripts\open-urls.bat   membuka Swagger + dashboard setelah siap
+  scripts\init-env.ps1    mengisi .env API secara otomatis
+  scripts\check-db.ps1    memeriksa port, kredensial, dan pgvector
+  scripts\new-secrets.ps1 mencetak JWT_SECRET + SECRETS_KEY_HEX acak
+  scripts\stop.ps1        menghentikan semua service (dipanggil dev.bat stop)
+
+
+PENYIAPAN PERTAMA KALI
+----------------------
+1. jargon-be\api\.env dibuat dan DILENGKAPI OTOMATIS oleh run-api.bat.
+   JWT_SECRET dan SECRETS_KEY_HEX dibangkitkan acak; nilai yang sudah Anda
+   isi sendiri tidak pernah ditimpa.
+
+   JWT_SECRET dibangkitkan acak, bukan diminta diketik, karena yang paling
+   sering terjadi bukan lupa mengisinya - melainkan mengisinya dengan
+   sesuatu yang mudah diketik. JWT_SECRET yang bisa ditebak berarti siapa
+   pun dapat menempa token akses untuk peran apa pun, termasuk superadmin.
+
+   Yang mungkin perlu Anda ubah sendiri hanya DATABASE_URL, bila
+   PostgreSQL tidak dijalankan lewat Docker.
+
+2. PostgreSQL + pgvector - lihat bagian HARUS PAKAI DOCKER di atas.
+
+3. Redis boleh tidak ada saat pengembangan; yang mati hanyalah rate limit
+   dan anti-replay nonce.
+
+4. JANGAN menjalankan `php artisan migrate`. Skema dimiliki migrasi sqlx di
+   jargon-be\api\migrations, dan migrasi Laravel sudah ditandai selesai
+   oleh seed.
+
+5. Untuk debug web, CORS_ALLOWED_ORIGINS pada API harus memuat
+   http://127.0.0.1:5000. Bawaannya `*`, sudah cukup untuk lokal - tetapi
+   HARUS diganti domain sebenarnya di produksi.
+
+
+APLIKASI DI BROWSER
+-------------------
+Brave dipakai otomatis bila terpasang (Flutter membaca variabel
+CHROME_EXECUTABLE; Brave berbasis Chromium sehingga hot reload dan DevTools
+tetap bekerja).
+
+Untuk memakai profil Brave Anda sendiri, lengkap dengan ekstensi dan login,
+bukan profil sementara buatan Flutter:
+
+  cd jargon-fe
+  run-web.bat 5000 - server
+
+lalu buka sendiri http://127.0.0.1:5000 di Brave.
+
+Di dalam sesi run: r = hot reload, R = hot restart, q = keluar.
+
+  Yang bisa diuji di browser : login NIK/NISN, Beranda, Absensi (pantau),
+                               Panic Button, Pemberkasan
+  Yang TIDAK bisa            : mode kios absensi wajah - butuh kamera,
+                               ML Kit, dan TFLite yang hanya ada di
+                               aplikasi Android/iOS
+
+
+PERANGKAT / EMULATOR ANDROID
+----------------------------
+  cd jargon-fe
+  flutter devices
+  flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080
+
+10.0.2.2 = mesin pengembang dilihat dari emulator Android; 127.0.0.1 di
+emulator menunjuk ke emulatornya sendiri.
+
+Untuk ponsel fisik, pakai IP laptop (ipconfig -> IPv4), mis.
+http://192.168.1.10:8080. Perangkat harus di Wi-Fi yang sama dan port 8080
+perlu diizinkan Windows Firewall.
+
+Alamat API juga bisa diubah tanpa build ulang lewat tombol alamat server di
+layar login aplikasi.
+
+
+MENJALANKAN SELURUH SISTEM DALAM CONTAINER
+------------------------------------------
+  setup.bat                     sekali - buat .env berisi rahasia acak
+  docker compose up -d          berikutnya
+  docker compose logs -f api    lihat log
+  docker compose down           hentikan
+  docker compose down -v        hentikan + HAPUS seluruh data
+
+Semuanya dilayani satu nginx di HTTP_PORT (bawaan 80; di mesin ini 8090
+karena port 80 dipakai Apache XAMPP):
+
+  /                aplikasi Jargon GO
+  /admin/login     dashboard
+  /docs            Swagger UI
+
+Ini mode untuk MEMBAGIKAN dan MENDEMOKAN. Untuk mengubah kode pakai
+dev.bat: di container, setiap perubahan berarti membangun ulang image.
+
+
+VERSI IMAGE DASAR - CATATAN DARI BUILD PERTAMA
+----------------------------------------------
+Empat kegagalan build pertama semuanya soal versi image dasar, bukan kode.
+Dicatat di sini supaya tidak ditelusuri ulang:
+
+  1. ghcr.io/cirruslabs/flutter:3.44.6 TIDAK ADA. Registry itu hanya
+     memuat rilis MINOR (3.44.0), bukan setiap patch.
+
+     Melihat tag yang tersedia:
+       TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:cirruslabs/flutter:pull" | jq -r .token)
+       curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://ghcr.io/v2/cirruslabs/flutter/tags/list?n=1000" | jq -r '.tags[]'
+
+  2. Image `composer:2` kini membawa PHP 8.5, sedangkan composer.json
+     meminta ^8.2 dan openspout (lewat yajra/laravel-datatables-export)
+     menolak di atas 8.4. Karena itu vendor dibangun di atas
+     php:8.3-cli-bookworm, dan hanya PHAR composer yang diambil dari
+     image resminya.
+
+     Composer memeriksa versi PHP dan ekstensi terhadap SELURUH pohon
+     dependensi sebelum mengunduh apa pun - jadi ext-gd dan ext-sockets
+     harus sudah ada sejak tahap vendor, bukan hanya saat runtime.
+
+  3. Flutter 3.44.0 membawa Dart 3.12.0, sedangkan pubspec.yaml meminta
+     ^3.12.2. Batas itu dihasilkan `flutter create` dari SDK yang kebetulan
+     terpasang, bukan karena ada fitur yang membutuhkannya - jadi
+     diturunkan ke ^3.12.0. Yang naik biayanya kalau dibiarkan: seluruh
+     build container gagal tanpa satu baris kode pun bermasalah.
+
+  4. rust:1.86 terlalu tua. Cargo.lock memuat dependensi (image, time,
+     validator_derive) yang menuntut rustc >= 1.88. Dipatok 1.90.
+
+  5. Build script utoipa-swagger-ui MENGUNDUH bundel Swagger UI saat
+     kompilasi dan memanggil `curl`. Image rust:slim tidak memuatnya, dan
+     pesan galatnya menyesatkan - "failed to download Swagger UI" terlihat
+     seperti masalah jaringan, padahal perkakasnya yang tidak ada.
+
+Pesan moralnya dua arah: `:latest` / `:stable` membuat build yang hari ini
+hijau menjadi merah minggu depan; tetapi versi yang dipatok juga harus
+BENAR-BENAR ADA dan cukup baru untuk lockfile-nya. Setelah mengubah
+dependensi, jalankan `docker compose build` - `cargo check` dan
+`flutter analyze` di mesin lokal TIDAK akan menangkap ini, karena
+toolchain lokal jauh lebih baru daripada yang ada di image.
+
+
+PEMERIKSAAN SEBELUM COMMIT
+--------------------------
+  cd jargon-be\api  &&  cargo check --all-targets  &&  cargo test --bins
+  cd jargon-fe      &&  flutter analyze  &&  flutter test
+  cd jargon-fe      &&  flutter build web
+
+`flutter build web` layak dijalankan meski target utamanya Android: satu
+impor baru yang menyentuh dart:ffi (kamera, ML Kit, TFLite) akan merusak
+debug web tanpa memunculkan peringatan apa pun di flutter analyze.

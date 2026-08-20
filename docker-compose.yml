@@ -1,0 +1,239 @@
+# =====================================================================
+# Jargon GO — seluruh sistem dalam satu perintah.
+#
+#     docker compose up -d --build
+#     buka http://localhost
+#
+# Berkas ini adalah SUMBER KEBENARAN untuk menjalankan sistem lewat
+# container. Yang di infra/docker-compose.yml hanya untuk
+# pengembangan backend (database saja); yang ini mencakup aplikasi.
+#
+# ---------------------------------------------------------------------
+# SATU PINTU MASUK
+#
+# Semuanya dilayani nginx di port 80:
+#
+#     /                 aplikasi Jargon GO (Flutter web)
+#     /admin/*          dashboard Laravel
+#     /v1/*  /docs      API Rust + Swagger UI
+#     /files/*          berkas tersimpan (berotorisasi)
+#
+# Bukan tiga port terpisah. Alasannya bukan kerapian:
+#
+#   1. Aplikasi web dan API berada di origin yang SAMA, sehingga CORS
+#      tidak berlaku sama sekali. Tidak ada daftar origin yang harus
+#      dijaga tetap sinkron dengan port yang sedang dipakai.
+#   2. Aplikasi mengambil alamat API dari origin halamannya sendiri
+#      (API_SAME_ORIGIN), jadi image yang sama bekerja di localhost, di
+#      IP LAN, maupun di balik nama domain — tanpa dibangun ulang.
+#
+# Itulah yang membuat stack ini bisa diserahkan ke orang lain dan langsung
+# jalan.
+# ---------------------------------------------------------------------
+#
+# PERTAMA KALI
+#
+#     setup.bat            (Windows)
+#     ./setup.sh           (Linux/macOS)
+#
+# Skrip itu membuat .env berisi rahasia acak. Tanpanya compose berhenti
+# dengan pesan yang menjelaskan — sengaja, karena JWT_SECRET bawaan yang
+# ikut tersebar berarti siapa pun yang punya berkas ini dapat menempa
+# token superadmin untuk pemasangan orang lain.
+# =====================================================================
+
+name: jargon-go
+
+services:
+  # -------------------------------------------------------------------
+  # PostgreSQL + pgvector
+  # -------------------------------------------------------------------
+  postgres:
+    # Image resmi pgvector. Ekstensi `vector` WAJIB: migrasi 0001
+    # menjalankan CREATE EXTENSION vector dan face_embeddings memakai
+    # tipe VECTOR(512). Di Windows pgvector tidak punya installer resmi
+    # dan harus dikompilasi — itu sebabnya container ini ada.
+    image: pgvector/pgvector:pg17
+    container_name: jargon-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: absensi
+      POSTGRES_USER: absensi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-absensi}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=256MB
+      # Partisi bulanan pada `attendances` berarti banyak tabel; nilai
+      # bawaan max_locks_per_transaction terlalu kecil saat satu query
+      # menyentuh banyak partisi sekaligus.
+      - -c
+      - max_locks_per_transaction=256
+      - -c
+      - timezone=Asia/Jakarta
+      - -c
+      - log_min_duration_statement=1000
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Port host dibuat 5432 secara bawaan. Bila mesin Anda sudah punya
+      # PostgreSQL sendiri di sana, setel POSTGRES_PORT di .env — misalnya
+      # 55432 — supaya keduanya bisa hidup berdampingan.
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U absensi -d absensi"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # -------------------------------------------------------------------
+  # Redis — sesi dashboard, rate limit, anti-replay nonce
+  # -------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: jargon-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # -------------------------------------------------------------------
+  # API — Rust / Axum. Menjalankan migrasi sendiri saat start.
+  # -------------------------------------------------------------------
+  api:
+    build:
+      context: ./api
+    image: jargon-go/api:latest
+    container_name: jargon-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      BIND_ADDR: 0.0.0.0:8080
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost}
+      DATABASE_URL: postgres://absensi:${POSTGRES_PASSWORD:-absensi}@postgres:5432/absensi
+      REDIS_URL: redis://redis:6379/2
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET kosong - jalankan setup.bat (Windows) atau ./setup.sh}
+      SECRETS_KEY_HEX: ${SECRETS_KEY_HEX:?SECRETS_KEY_HEX kosong - jalankan setup.bat (Windows) atau ./setup.sh}
+      STORAGE_ROOT: /app/storage
+      FACE_EMBEDDING_DIM: ${FACE_EMBEDDING_DIM:-512}
+      FACE_MODEL_VERSION: ${FACE_MODEL_VERSION:-mobilefacenet-v1}
+      FACE_MATCH_THRESHOLD: ${FACE_MATCH_THRESHOLD:-0.62}
+      NOTIFY_ENABLED: ${NOTIFY_ENABLED:-false}
+      WA_PROVIDER: ${WA_PROVIDER:-fonnte}
+      WA_TOKEN: ${WA_TOKEN:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      ENABLE_SWAGGER: ${ENABLE_SWAGGER:-true}
+      # Aplikasi web dilayani nginx yang sama dengan API, jadi permintaannya
+      # bukan lintas origin dan CORS tidak berperan. Nilai ini hanya penting
+      # bila ada klien lain yang memanggil API dari domain berbeda.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
+      RUST_LOG: ${RUST_LOG:-jargon_api=info,tower_http=info,sqlx=warn}
+    volumes:
+      # Foto pendaftaran wajah. Volume, bukan bind mount: data biometrik
+      # tidak boleh hilang saat image dibangun ulang.
+      - api-storage:/app/storage
+
+  # -------------------------------------------------------------------
+  # Dashboard — Laravel
+  # -------------------------------------------------------------------
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    image: jargon-go/admin:latest
+    container_name: jargon-admin
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      APP_KEY: ${APP_KEY:-}
+      APP_URL: ${PUBLIC_URL:-http://localhost}
+      # Metronic menaruh asetnya di /assets/, dan Flutter web juga. Awalan
+      # ini membuat helper asset() memancarkan /admin/assets/... sehingga
+      # keduanya tidak bertabrakan. nginx yang membuang awalannya kembali.
+      ASSET_URL: /admin
+      APP_TIMEZONE: Asia/Jakarta
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: absensi
+      DB_USERNAME: absensi
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-absensi}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SESSION_DRIVER: redis
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      # `api` adalah nama service di jaringan compose — dipakai dari sisi
+      # server. PUBLIC_URL dipakai untuk tautan yang dibuka browser.
+      ABSENSI_API_URL: http://api:8080
+      ABSENSI_API_PUBLIC_URL: ${PUBLIC_URL:-http://localhost}
+      FACE_EMBEDDING_DIM: ${FACE_EMBEDDING_DIM:-512}
+      FACE_MODEL_VERSION: ${FACE_MODEL_VERSION:-mobilefacenet-v1}
+    volumes:
+      - admin-storage:/var/www/admin/storage
+
+  # -------------------------------------------------------------------
+  # Aplikasi Jargon GO — Flutter web
+  # -------------------------------------------------------------------
+  web:
+    build:
+      context: ../jargon-fe
+      args:
+        FLUTTER_VERSION: ${FLUTTER_VERSION:-3.44.0}
+        BUILD_MODE: ${WEB_BUILD_MODE:-release}
+    image: jargon-go/web:latest
+    container_name: jargon-web
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------
+  # nginx — satu-satunya pintu masuk
+  # -------------------------------------------------------------------
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: jargon-nginx
+    restart: unless-stopped
+    depends_on:
+      - api
+      - admin
+      - web
+    volumes:
+      - ./infra/nginx/absensi.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  postgres-data:
+  redis-data:
+  api-storage:
+  admin-storage:
