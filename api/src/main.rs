@@ -7,6 +7,17 @@
 //!   * worker latar (pengiriman notifikasi & pemeliharaan harian).
 //!
 //! Jalankan `cargo run` setelah menyiapkan `.env` (lihat `.env.example`).
+//!
+//! Subcommand:
+//!   * `jargon-api`           jalankan server (migrasi ikut diterapkan)
+//!   * `jargon-api migrate`   HANYA terapkan migrasi, lalu keluar
+//!   * `jargon-api version`   cetak versi
+//!
+//! `migrate` ada karena tidak setiap keadaan boleh menyalakan server untuk
+//! membuat tabel: pemasangan awal di server, pipeline CI/CD yang memisahkan
+//! langkah migrasi dari langkah rilis, dan pemeriksaan apakah skema sudah
+//! mutakhir. Migrasinya sama persis dengan yang dijalankan saat start —
+//! disematkan ke biner oleh `sqlx::migrate!`, jadi tidak mungkin berbeda.
 
 mod auth;
 mod config;
@@ -48,6 +59,21 @@ async fn main() -> anyhow::Result<()> {
     // .env bersifat opsional: di produksi variabel datang dari orchestrator.
     let _ = dotenvy::dotenv();
 
+    // Subcommand dibaca SEBELUM konfigurasi penuh: `version` tidak butuh
+    // database, dan operator yang salah mengetik subcommand sebaiknya tahu
+    // segera, bukan setelah menunggu koneksi database gagal.
+    let command = std::env::args().nth(1).unwrap_or_default();
+
+    if command == "version" || command == "--version" || command == "-V" {
+        println!("jargon-api {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if !command.is_empty() && command != "migrate" && command != "serve" {
+        eprintln!("Subcommand `{command}` tidak dikenal.");
+        eprintln!("Pilihan: serve (bawaan), migrate, version");
+        std::process::exit(2);
+    }
+
     let cfg = Config::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
     telemetry::init(&cfg.app_env);
 
@@ -77,6 +103,16 @@ async fn main() -> anyhow::Result<()> {
             tracing::error!(error = %e, "migrasi database gagal");
             return Err(anyhow::anyhow!("migrasi gagal: {e}"));
         }
+    }
+
+    // `migrate`: selesai. Kolam koneksi ditutup rapi supaya advisory lock
+    // sqlx dilepas segera — bukan menunggu batas waktu — agar langkah
+    // berikutnya di pipeline tidak tertahan menunggu lock yang sudah tidak
+    // dipakai siapa pun.
+    if command == "migrate" {
+        state.db.close().await;
+        tracing::info!("migrasi selesai, keluar");
+        return Ok(());
     }
 
     warn_on_risky_config(&state, is_production);

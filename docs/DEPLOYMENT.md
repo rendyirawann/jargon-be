@@ -653,6 +653,200 @@ subpath memang sudah terikat pada satu alamat.
 
 ---
 
+## 2.11 Database: nama, kredensial, migrasi, seed
+
+### Kredensial
+
+| | Nilai | Diatur di |
+|---|---|---|
+| Nama database | `absensi` | `docker-compose.yml` (`POSTGRES_DB`) |
+| Username | `absensi` | `docker-compose.yml` (`POSTGRES_USER`) |
+| Password | `absensi` | `.env` (`POSTGRES_PASSWORD`) |
+| Port host | `5432` | `.env` (`POSTGRES_PORT`) |
+
+```
+DATABASE_URL=postgres://absensi:absensi@127.0.0.1:5432/absensi
+```
+
+Nama database dan username **tidak** ada di `.env` — keduanya nilai tetap
+di `docker-compose.yml`. Hanya passwordnya yang bisa disetel, dan itu
+disengaja: nama yang bisa diubah berarti setiap dokumen di sini harus
+memakai variabel, sementara yang benar-benar perlu berbeda antar-pemasangan
+hanyalah rahasianya.
+
+**Ganti `POSTGRES_PASSWORD` sebelum produksi.** Nilai `absensi` ada di
+`.env.example` yang ikut dibagikan, jadi ia bukan rahasia sama sekali.
+
+Di dalam jaringan container, API memanggil host `postgres` (nama service),
+bukan `127.0.0.1`. `POSTGRES_PORT` hanya memetakan port ke **host**, agar
+bisa dihubungi dari DBeaver/psql di laptop.
+
+### Di mana berkas migrasinya
+
+Yang membuat tabel adalah **`api/migrations/*.sql`** — 13 berkas SQL biasa,
+bukan migrasi Laravel. Total 63 `CREATE TABLE`, menghasilkan 96 tabel
+setelah partisi bulanan ikut terbentuk.
+
+Berkas itu **disematkan ke dalam biner** saat kompilasi oleh
+`sqlx::migrate!("./migrations")` di `api/src/main.rs`. Konsekuensinya
+penting: biner yang sudah dibangun tidak memerlukan folder `migrations/` di
+sebelahnya — di server cukup satu berkas biner.
+
+> **`admin/database/migrations/*.php` bukan yang membuat tabel.** Berkas itu
+> bawaan starter Laravel, dan `0010_seed.sql` sudah menandainya selesai di
+> tabel `migrations`. Jalankan `php artisan migrate` dan jawabannya
+> `Nothing to migrate.` — itu memang yang diinginkan: kalau tidak, akan ada
+> dua pemilik skema yang sama.
+
+Riwayat penerapan tercatat sqlx di tabel `_sqlx_migrations`, beserta
+checksum tiap berkas. Mengubah migrasi yang SUDAH diterapkan akan ditolak
+saat start berikutnya — untuk mengubah skema, tambahkan berkas baru
+(`0014_...`), jangan sunting yang lama.
+
+```sql
+SELECT version, description, success FROM _sqlx_migrations ORDER BY version;
+```
+
+### Menjalankan migrasi
+
+Ada dua cara, dan keduanya memakai migrasi yang sama persis.
+
+**1. Otomatis saat API start** — ini yang berlaku pada pemasangan normal.
+
+```
+INFO menyalakan layanan app=Jargon GO API env=local version="0.1.0"
+INFO migrasi database mutakhir
+```
+
+**2. Subcommand `migrate`** — terapkan lalu keluar, tanpa menyalakan server.
+
+```bash
+# Container
+docker compose run --rm --entrypoint /usr/local/bin/jargon-api api migrate
+
+# Tanpa Docker
+/opt/jargon/jargon-api migrate
+```
+
+Ini yang dipakai bila server belum boleh melayani trafik: pemasangan awal,
+pipeline CI/CD yang memisahkan langkah migrasi dari langkah rilis, atau
+sekadar memastikan skema sudah mutakhir. Kolam koneksi ditutup rapi setelah
+selesai, sehingga advisory lock sqlx langsung dilepas dan langkah
+berikutnya tidak tertahan.
+
+Subcommand lain: `jargon-api version` (tidak menyentuh database sama sekali).
+
+sqlx memakai advisory lock, jadi beberapa replika yang start bersamaan
+tetap aman — hanya satu yang menerapkan, sisanya menunggu.
+
+```
+2026-08-16T19:44:43 INFO menyalakan layanan app=Jargon GO API env=local
+2026-08-16T19:44:43 INFO migrasi database mutakhir
+```
+
+Tiga belas migrasi di `api/migrations/`:
+
+| Berkas | Isi |
+|---|---|
+| `0001_extensions` | pgvector, pgcrypto, pg_trgm, UUID v7 |
+| `0002_identity_and_laravel_compat` | `users` + tabel infrastruktur Laravel |
+| `0003_tenancy` | regions, schools, academic_years, cakupan user |
+| `0004_academics` | classrooms, students, student_guardians |
+| `0005_face` | face_enrollments, face_embeddings `VECTOR(512)` |
+| `0006_devices` | devices, heartbeats, api_clients |
+| `0007_attendance` | aturan jam, attendances & events (partisi bulanan) |
+| `0008_notifications` | templates, policies, outbox (partisi bulanan) |
+| `0009_ops` | audit, import, export, idempotency |
+| **`0010_seed`** | **seed wajib — ikut migrasi, otomatis** |
+| `0011_superapp_identity` | login NIK/NISN, akun siswa & orang tua |
+| `0012_panic_button` | kategori, laporan, media, unmask logs |
+| `0013_pemberkasan` | jenis dokumen, pengajuan, berkas, lini masa |
+
+> **JANGAN** menjalankan `php artisan migrate`. Skema dimiliki migrasi sqlx;
+> migrasi Laravel sudah ditandai selesai oleh `0010_seed.sql`, sehingga
+> perintah itu menjadi no-op — tetapi menjalankannya membuka kemungkinan
+> dua pemilik skema yang sama.
+
+### Dua jenis seed
+
+**1. Seed wajib — `0010_seed.sql`, bagian dari migrasi.**
+
+Otomatis, di setiap pemasangan termasuk produksi. Berisi hal yang tanpanya
+sistem tidak bisa dipakai sama sekali:
+
+* 50 izin + 8 peran + pemetaan izin per peran
+* Akun `superadmin` (`Superadmin#2026`, ditandai wajib ganti kata sandi)
+* 34 wilayah Sumatera Utara
+* Tahun ajaran 2026/2027 + semester
+* Template notifikasi WhatsApp/Telegram/Email
+* Pengaturan aplikasi
+
+**2. Data demo — `api/seeds/demo.sql`, manual.**
+
+```bat
+scripts\seed-demo.bat
+```
+
+Sengaja **tidak** ditaruh di `migrations/`. Migrasi berjalan di mana pun
+termasuk produksi, dan sekolah "SMA Negeri 1 Medan (DEMO)" yang muncul di
+lingkungan Dinas sebenarnya lebih merepotkan daripada membantu.
+
+Isinya di §2.9. Aman dijalankan berulang.
+
+### Jadi di server, langkahnya
+
+```bash
+# 1. Kredensial acak
+./setup.sh env          # atau isi .env sendiri
+
+# 2. Ganti POSTGRES_PASSWORD di .env
+
+# 3. Database dulu
+docker compose -f docker-compose.prod.yml up -d postgres redis
+
+# 4. Migrasi + seed wajib. Bisa dilewati — start API melakukannya juga —
+#    tetapi memisahkannya membuat kegagalan migrasi terlihat sebagai
+#    kegagalan migrasi, bukan sebagai "API tidak mau menyala".
+docker compose -f docker-compose.prod.yml run --rm     --entrypoint /usr/local/bin/jargon-api api migrate
+
+# 5. Sisanya
+docker compose -f docker-compose.prod.yml up -d
+
+# 6. HANYA di lingkungan uji: data demo
+scripts/seed-demo.bat
+```
+
+Langkah 4 opsional secara teknis: API menerapkan migrasi saat start, jadi
+langkah 5 sudah cukup. Yang didapat dari memisahkannya adalah pesan galat
+yang menunjuk ke penyebabnya — dan pada pemasangan pertama, itu selisih
+antara lima menit dan satu jam.
+
+Untuk seed **wajib** tidak ada langkah terpisah sama sekali: `0010_seed.sql`
+adalah migrasi. Yang manual hanya data demo, dan itu memang tidak boleh
+berjalan sendiri di produksi.
+
+### Bila memakai PostgreSQL sendiri (tanpa container)
+
+Buat role dan database yang cocok dengan `DATABASE_URL`, lalu aktifkan
+pgvector. Migrasi tetap dijalankan API saat start.
+
+```bash
+sudo -u postgres psql <<'SQL'
+CREATE ROLE absensi LOGIN PASSWORD 'kata-sandi-produksi';
+CREATE DATABASE absensi OWNER absensi;
+\c absensi
+CREATE EXTENSION IF NOT EXISTS vector;
+SQL
+```
+
+Periksa kesiapannya:
+
+```bash
+powershell -File scripts/check-db.ps1      # Windows
+```
+
+---
+
 ## 3. Onboarding satu sekolah
 
 Urutannya penting — melangkahi satu tahap membuat tahap berikutnya gagal.
