@@ -205,7 +205,7 @@
                 <div class="card-header pt-5">
                     <h3 class="card-title fw-bold">Riwayat Sesi Ini</h3>
                     <div class="card-toolbar">
-                        <span id="counter" class="badge badge-light">0 tercatat</span>
+                        <span id="counter" class="badge badge-light">0 absensi / 0 scan</span>
                         {{-- Riwayat ini hanya milik sesi browser ini (tidak disimpan
                              di server), jadi menghapusnya aman: yang dibersihkan
                              cuma tampilan, bukan data absensi. --}}
@@ -279,6 +279,11 @@
 
         const el = (id) => document.getElementById(id);
         let device = null, stream = null, timer = null, busy = false, count = 0;
+        // Dua angka berbeda, dan itu yang membuat "0 tercatat" tampak bertabrakan
+        // dengan daftar yang berisi: `count` hanya absensi yang benar-benar baru,
+        // sedangkan daftar riwayat memuat SETIAP pemindaian termasuk yang ditolak
+        // karena sudah lengkap. Keduanya kini ditampilkan bersama.
+        let scanTotal = 0;
         let lastKey = '';
 
         // --- Mesin keadaan tantangan ---
@@ -687,7 +692,9 @@
 
                 count = 0;
 
-                el('counter').textContent = '0 tercatat';
+                count = 0;
+                scanTotal = 0;
+                el('counter').textContent = '0 absensi / 0 scan';
 
             });
 
@@ -716,21 +723,21 @@
 
             if (a) {
 
-                if (a.status) baris.push('Status: <b>' + a.status + '</b>');
+                // 'status' adalah status kehadiran HARI ITU (hadir/terlambat/alfa), bukan
+        // keterangan masuk atau pulang. Label lama 'Status: hadir' terbaca
+        // bertabrakan dengan pesan 'sudah absen pulang'.
+        if (a.status) baris.push('Status kehadiran: <b>' + a.status + '</b>');
 
                 if (a.late_minutes) baris.push('Terlambat ' + a.late_minutes + ' menit');
 
-                const jam = a.check_out_at || a.check_in_at;
-
-                if (jam) {
-
-                    baris.push('Waktu: <b>'
-
-                        + new Date(jam).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
-
-                        + '</b>');
-
-                }
+                // Jam masuk dan pulang ditampilkan TERPISAH: satu baris "Waktu" tidak
+        // bisa menjawab pertanyaan yang sebenarnya diajukan petugas — sudah
+        // absen masuk jam berapa, dan pulangnya jam berapa.
+        const jamStr = function (v) {
+            return new Date(v).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        };
+        if (a.check_in_at) baris.push('Absen masuk: <b>' + jamStr(a.check_in_at) + '</b>');
+        if (a.check_out_at) baris.push('Absen pulang: <b>' + jamStr(a.check_out_at) + '</b>');
 
             }
 
@@ -817,7 +824,9 @@
             if (key === lastKey) return;
             lastKey = key;
 
-            if (berhasilBaru) { count += 1; el('counter').textContent = count + ' tercatat'; }
+            scanTotal += 1;
+            if (berhasilBaru) count += 1;
+            el('counter').textContent = count + ' absensi / ' + scanTotal + ' scan';
 
             // Dipasang sekali; handler-nya di bawah, dekat tombolnya.
 
@@ -837,8 +846,19 @@
             meta.className = 'text-muted fs-9';
             meta.textContent = (s && s.classroom_name ? s.classroom_name + ' - ' : '')
                 + new Date().toLocaleTimeString('id-ID')
-                + ' - toleh ' + labelArah(arah).toLowerCase()
                 + (message ? ' - ' + message : '');
+            // Keterangan 'toleh kanan/kiri' dibuang: tantangan tiga langkah sudah
+            // tidak dipakai, jadi arah itu tidak lagi berarti apa pun.
+
+            // Lencana keadaan supaya jelas mengapa daftar bisa lebih panjang
+            // daripada jumlah absensi.
+            const tanda = document.createElement('span');
+            tanda.className = 'badge fs-9 ms-2 '
+                + (berhasilBaru ? 'badge-light-success'
+                   : sudahLengkap ? 'badge-light-warning' : 'badge-light-danger');
+            tanda.textContent = berhasilBaru ? 'tercatat'
+                : sudahLengkap ? 'sudah lengkap' : 'ditolak';
+            nm.append(tanda);
 
             cell.append(nm, meta);
             tr.append(cell);
