@@ -206,6 +206,13 @@
                     <h3 class="card-title fw-bold">Riwayat Sesi Ini</h3>
                     <div class="card-toolbar">
                         <span id="counter" class="badge badge-light">0 tercatat</span>
+                        {{-- Riwayat ini hanya milik sesi browser ini (tidak disimpan
+                             di server), jadi menghapusnya aman: yang dibersihkan
+                             cuma tampilan, bukan data absensi. --}}
+                        <button type="button" id="btnHapusRiwayat"
+                                class="btn btn-sm btn-light-danger ms-2 py-1 px-3 fs-9">
+                            Hapus riwayat
+                        </button>
                     </div>
                 </div>
                 <div class="card-body pt-3 p-0">
@@ -664,7 +671,30 @@
 
          */
 
-        function popupHasil(matched, s, a, message) {
+        // Bersihkan riwayat sesi (tampilan saja).
+
+        const btnHapusRiwayat = document.getElementById('btnHapusRiwayat');
+
+        if (btnHapusRiwayat) {
+
+            btnHapusRiwayat.addEventListener('click', function () {
+
+                const body = el('logBody');
+
+                body.innerHTML = '<tr><td colspan="3" class="text-center text-muted fs-8 py-6">Belum ada scan.</td></tr>';
+
+                body.dataset.filled = '';
+
+                count = 0;
+
+                el('counter').textContent = '0 tercatat';
+
+            });
+
+        }
+
+
+        function popupHasil(matched, s, a, message, sudahLengkap) {
 
             if (!window.Swal) return;
 
@@ -706,19 +736,36 @@
 
         
 
+            if (sudahLengkap) {
+
+        
+
+                baris.push('<b>Absen masuk dan pulang hari ini sudah lengkap.</b>');
+
+        
+
+                baris.push('Pemindaian berikutnya bisa dilakukan besok.');
+
+        
+
+            }
+
+
+        
+
             Swal.fire({
 
-                title: matched ? (s ? s.full_name : 'Absensi tercatat') : 'Tidak dikenali',
+                title: s ? s.full_name : (matched ? 'Absensi tercatat' : 'Tidak dikenali'),
 
                 html: (message ? '<div class="mb-3">' + message + '</div>' : '')
 
                       + (baris.length ? '<div class="text-start fs-7 text-muted">' + baris.join('<br>') + '</div>' : ''),
 
-                icon: matched ? 'success' : 'error',
+                icon: matched ? 'success' : (sudahLengkap ? 'info' : 'error'),
 
-                confirmButtonText: matched ? 'Berikutnya' : 'Tutup',
+                confirmButtonText: matched ? 'Berikutnya' : (sudahLengkap ? 'Mengerti' : 'Tutup'),
 
-                confirmButtonColor: matched ? '#0f766e' : '#dc2626',
+                confirmButtonColor: matched ? '#0f766e' : (sudahLengkap ? '#1e3a8a' : '#dc2626'),
 
                 timer: matched ? 4000 : undefined,
 
@@ -731,11 +778,19 @@
 
         function render(data, message) {
             const matched = !!data.matched;
+            // Server sudah menolak absensi kedua pada hari yang sama: aksinya
+            // 'already_recorded' dan tidak ada baris absensi baru yang dibuat
+            // (dicatat sebagai 'duplicate'). Yang salah sebelumnya hanya
+            // tampilannya: ditampilkan hijau seolah pemindaian ini berhasil,
+            // sehingga siswa mengira absensinya bertambah.
+            const sudahLengkap = data.action === 'already_recorded';
+            const berhasilBaru = matched && !sudahLengkap;
             const s = data.student || null;
 
-            el('resultIcon').innerHTML = matched ? '&#9989;' : '&#10060;';
+            el('resultIcon').innerHTML = berhasilBaru ? '&#9989;' : (sudahLengkap ? '&#8505;' : '&#10060;');
             el('resultName').textContent = s ? s.full_name : 'Tidak dikenali';
-            el('resultName').className = 'fs-2 fw-bold ' + (matched ? 'text-success' : 'text-danger');
+            el('resultName').className = 'fs-2 fw-bold '
+                + (berhasilBaru ? 'text-success' : (sudahLengkap ? 'text-warning' : 'text-danger'));
             el('resultMeta').textContent = message || '';
 
             let badge = '';
@@ -752,17 +807,20 @@
             }
             el('resultBadge').innerHTML = badge;
 
-            setStatus(message || (matched ? 'Tercatat.' : 'Tidak dikenali.'),
-                      matched ? 'ok' : 'warn');
+            setStatus(message || (berhasilBaru ? 'Tercatat.' : 'Tidak dikenali.'),
+                berhasilBaru ? 'ok' : 'warn');
 
 
-            popupHasil(matched, s, data.attendance || null, message);
+            popupHasil(berhasilBaru, s, data.attendance || null, message, sudahLengkap);
 
             const key = (s ? s.id : 'unknown') + '|' + (data.action || '');
             if (key === lastKey) return;
             lastKey = key;
 
-            if (matched) { count += 1; el('counter').textContent = count + ' tercatat'; }
+            if (berhasilBaru) { count += 1; el('counter').textContent = count + ' tercatat'; }
+
+            // Dipasang sekali; handler-nya di bawah, dekat tombolnya.
+
 
             const body = el('logBody');
             if (body.dataset.filled !== '1') { body.innerHTML = ''; body.dataset.filled = '1'; }
