@@ -2,13 +2,47 @@
 @section('title', 'Absensi Wajah')
 
 @section('content')
+    <style>
+        /* Panduan arah dibuat BESAR dan bergerak.
+           Teks kecil tidak terbaca dari jarak satu meter, dan siswa yang
+           tidak paham harus berbuat apa akan berdiri diam sampai petugas
+           menjelaskan - itu yang membuat antrean pagi menumpuk. */
+        .arah-panah {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 5rem;
+            line-height: 1;
+            color: #ffc700;
+            text-shadow: 0 3px 14px rgba(0,0,0,.9);
+            pointer-events: none;
+            animation: arah-denyut 1s ease-in-out infinite;
+        }
+        .arah-panah.kanan { right: 6%; }
+        .arah-panah.kiri  { left: 6%; }
+        @keyframes arah-denyut {
+            0%, 100% { opacity: .45; transform: translateY(-50%) scale(1); }
+            50%      { opacity: 1;   transform: translateY(-50%) scale(1.18); }
+        }
+        .arah-teks {
+            position: absolute;
+            left: 0; right: 0;
+            bottom: 4.5rem;
+            text-align: center;
+            font-weight: 800;
+            font-size: 1.6rem;
+            color: #fff;
+            text-shadow: 0 2px 10px rgba(0,0,0,.9);
+            pointer-events: none;
+        }
+    </style>
     @include('backend.partials._flash')
 
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mt-5 mb-5">
         <div>
             <h2 class="fw-bold text-gray-900 mb-1">Absensi Wajah</h2>
             <span class="text-muted fs-7">
-                Siswa berdiri di depan kamera; kehadiran tercatat sendiri.
+                Hadap depan, lalu ikuti arah yang diminta. Kehadiran tercatat sendiri.
             </span>
         </div>
         <a href="{{ route('biometric.index') }}" class="btn btn-sm btn-light">Pendaftaran Wajah</a>
@@ -23,10 +57,6 @@
         berlaku tanpa ditulis dua kali - jendela jam masuk/pulang, jeda
         antar-scan, ambang kemiripan, margin kembar, anti-replay nonce,
         pencatatan device_id, dan notifikasi wali murid.
-
-        Menambah endpoint sendiri untuk web berarti menyalin semua itu, dan
-        salinan yang menyimpang menghasilkan absensi yang berbeda hanya
-        karena alatnya berbeda.
     --}}
 
     <div id="pairPanel" class="card card-flush border border-gray-200 mb-5 d-none">
@@ -58,13 +88,45 @@
     <div id="scanPanel" class="row g-5 d-none">
         <div class="col-xl-7">
             <div class="card card-flush border border-gray-200">
-                <div class="card-body p-0 position-relative bg-dark rounded">
+                <div class="card-body p-0 position-relative bg-dark rounded overflow-hidden">
+                    {{-- Dicerminkan seperti kaca, supaya "hadap kanan" terasa sesuai
+                         dengan yang dilihat di layar. Perhitungan yaw tetap memakai
+                         piksel asli, bukan tampilan ini. --}}
                     <video id="video" autoplay muted playsinline
-                           class="w-100 rounded" style="max-height: 520px; object-fit: cover;"></video>
+                           class="w-100" style="max-height: 520px; object-fit: cover; transform: scaleX(-1);"></video>
+
+                    <div id="guide"
+                         class="position-absolute top-50 start-50 translate-middle border border-4 rounded-circle border-white opacity-50"
+                         style="width: 40%; aspect-ratio: 1; pointer-events: none; transition: border-color .2s;"></div>
+
+                    <div id="bigHint"
+                         class="position-absolute top-0 start-0 end-0 text-center text-white fw-bold pt-4"
+                         style="font-size: 2rem; text-shadow: 0 2px 10px rgba(0,0,0,.85); pointer-events: none;"></div>
+                    <div id="arrowKiri" class="arah-panah kiri d-none">&#11013;</div>
+                    <div id="arrowKanan" class="arah-panah kanan d-none">&#10145;</div>
+                    <div id="arahTeks" class="arah-teks"></div>
+
                     <div id="camStatus"
                          class="position-absolute bottom-0 start-0 end-0 p-3 fs-8 text-white bg-dark bg-opacity-75">
                         Menyiapkan kamera...
                     </div>
+                </div>
+            </div>
+
+            {{-- Tiga langkah, terlihat sepanjang waktu supaya siswa tahu
+                 sedang di mana tanpa perlu dijelaskan petugas. --}}
+            <div class="d-flex gap-3 mt-4">
+                <div id="stepDepan" class="flex-grow-1 rounded p-3 bg-light text-center">
+                    <span class="fs-3 d-block">&#128100;</span>
+                    <span class="fs-8 fw-bold">1. Hadap depan</span>
+                </div>
+                <div id="stepToleh" class="flex-grow-1 rounded p-3 bg-light text-center">
+                    <span class="fs-3 d-block" id="stepTolehIcon">&#8596;</span>
+                    <span class="fs-8 fw-bold" id="stepTolehLabel">2. Menoleh</span>
+                </div>
+                <div id="stepBalik" class="flex-grow-1 rounded p-3 bg-light text-center">
+                    <span class="fs-3 d-block">&#9989;</span>
+                    <span class="fs-8 fw-bold">3. Hadap depan lagi</span>
                 </div>
             </div>
 
@@ -87,6 +149,22 @@
                 </div>
             </div>
 
+            <div class="card card-flush border border-gray-200 mb-5">
+                <div class="card-body p-5">
+                    <div class="fw-bold text-gray-800 mb-3">Arah kepala terdeteksi</div>
+                    <div class="d-flex align-items-center gap-3 mb-3">
+                        <span id="poseNow" class="badge badge-light fs-6 px-4 py-3">-</span>
+                        <span class="text-muted fs-8">yaw <code id="yawNow">0.00</code></span>
+                    </div>
+                    <div class="progress h-8px mb-2">
+                        <div id="yawBar" class="progress-bar bg-primary" style="width: 50%"></div>
+                    </div>
+                    <div class="d-flex justify-content-between fs-9 text-muted">
+                        <span>kiri</span><span>depan</span><span>kanan</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="card card-flush border border-gray-200">
                 <div class="card-header pt-5">
                     <h3 class="card-title fw-bold">Riwayat Sesi Ini</h3>
@@ -95,7 +173,7 @@
                     </div>
                 </div>
                 <div class="card-body pt-3 p-0">
-                    <div class="table-responsive" style="max-height: 340px; overflow-y:auto;">
+                    <div class="table-responsive" style="max-height: 300px; overflow-y:auto;">
                         <table class="table table-row-bordered align-middle mb-0">
                             <tbody id="logBody">
                                 <tr><td class="text-center text-muted py-8 fs-8">Belum ada scan.</td></tr>
@@ -130,14 +208,41 @@
         const EMB_DIM    = {{ $embeddingDim }};
         const STORE_KEY  = 'jargon.kiosk.device';
 
-        // Jeda antar-scan di SISI KLIEN. Server punya jeda sendiri
-        // (FACE_SCAN_COOLDOWN_SECS); yang ini semata agar satu orang yang
-        // berdiri diam tidak menembak server berkali-kali per detik.
-        const SCAN_INTERVAL_MS = 900;
+        const SCAN_INTERVAL_MS = 220;
+
+        /**
+         * Arah toleh DITENTUKAN SISTEM secara acak, bukan dipilih siswa.
+         *
+         * Itu yang membuat langkah ini berarti sebagai uji kehidupan:
+         * tantangan yang bisa diramalkan dapat disiapkan lebih dulu — satu
+         * video pendek berisi wajah menoleh ke kanan sudah cukup untuk
+         * melewatinya setiap kali. Arah yang diundi pada saat itu tidak
+         * bisa disiapkan.
+         *
+         * Setel false bila ingin menerima arah mana pun (lebih longgar,
+         * lebih cepat untuk siswa, tetapi lebih mudah ditipu rekaman).
+         */
+        const TANTANGAN_ACAK = true;
+
+        /**
+         * Skor liveness yang dilaporkan setelah tantangan lolos.
+         *
+         * 0.9, bukan 1.0: gerak kepala membuktikan ini bukan foto cetak,
+         * tetapi bukan bukti mutlak — rekaman video wajah menoleh masih
+         * bisa menipu. Melaporkan 1.0 akan berbohong kepada server dan
+         * membuat FACE_MIN_LIVENESS tidak berarti sebagai pengaman.
+         */
+        const LIVENESS_LULUS = 0.9;
 
         const el = (id) => document.getElementById(id);
         let device = null, stream = null, timer = null, busy = false, count = 0;
         let lastKey = '';
+
+        // --- Mesin keadaan tantangan ---
+        // depan -> toleh -> balik -> (kirim) -> tunggu_kosong -> depan
+        let fase = 'depan';
+        let arah = null;                       // 'right' | 'left'
+        const streak = new JargonFace.Streak(3);
 
         function setStatus(text, tone) {
             el('camStatus').textContent = text;
@@ -145,6 +250,81 @@
                 'position-absolute bottom-0 start-0 end-0 p-3 fs-8 text-white bg-opacity-75 '
                 + (tone === 'error' ? 'bg-danger' : tone === 'ok' ? 'bg-success'
                    : tone === 'warn' ? 'bg-warning' : 'bg-dark');
+        }
+
+        function pilihArah() {
+            if (!TANTANGAN_ACAK) return 'right';
+            const b = new Uint8Array(1);
+            (window.crypto || window.msCrypto).getRandomValues(b);
+            return (b[0] & 1) ? 'right' : 'left';
+        }
+
+        function labelArah(a) { return a === 'right' ? 'KANAN' : 'KIRI'; }
+
+        /**
+         * Tunjukkan arah yang diminta: panah besar + teks.
+         *
+         * Video dicerminkan (scaleX(-1)) seperti kaca, sehingga sisi kanan
+         * layar memang sisi kanan orang yang berdiri di depannya. Panah ke
+         * kanan layar karena itu berarti "menoleh ke kanan Anda" - tidak
+         * perlu dibalik.
+         */
+        function tunjukArah(target, cocok) {
+            const kanan = el('arrowKanan');
+            const kiri  = el('arrowKiri');
+            const teks  = el('arahTeks');
+
+            kanan.classList.toggle('d-none', target !== 'right');
+            kiri.classList.toggle('d-none', target !== 'left');
+
+            if (cocok) {
+                teks.textContent = 'Tahan...';
+                teks.style.color = '#50cd89';
+            } else if (target === 'frontal') {
+                teks.textContent = 'Hadap lurus ke kamera';
+                teks.style.color = '#fff';
+            } else if (target === 'right') {
+                teks.textContent = 'Menoleh ke KANAN';
+                teks.style.color = '#ffc700';
+            } else if (target === 'left') {
+                teks.textContent = 'Menoleh ke KIRI';
+                teks.style.color = '#ffc700';
+            } else {
+                teks.textContent = '';
+            }
+        }
+
+        function gambarLangkah() {
+            const aktif = 'flex-grow-1 rounded p-3 text-center bg-light-primary';
+            const beres = 'flex-grow-1 rounded p-3 text-center bg-light-success';
+            const mati  = 'flex-grow-1 rounded p-3 text-center bg-light';
+
+            el('stepDepan').className = fase === 'depan' ? aktif : beres;
+            el('stepToleh').className = fase === 'toleh' ? aktif : (fase === 'depan' ? mati : beres);
+            el('stepBalik').className = fase === 'balik' ? aktif : mati;
+
+            if (arah) {
+                el('stepTolehIcon').innerHTML = arah === 'right' ? '&#10145;' : '&#11013;';
+                el('stepTolehLabel').textContent = '2. Menoleh ke ' + labelArah(arah).toLowerCase();
+            } else {
+                el('stepTolehIcon').innerHTML = '&#8596;';
+                el('stepTolehLabel').textContent = '2. Menoleh';
+            }
+        }
+
+        function mulaiTantangan() {
+            fase = 'depan';
+            arah = pilihArah();
+            streak.reset();
+            gambarLangkah();
+        }
+
+        function tampilkanArah(pose, yaw, target) {
+            el('poseNow').textContent = JargonFace.poseLabel(pose);
+            el('poseNow').className = 'badge fs-6 px-4 py-3 '
+                + (pose === target ? 'badge-light-success' : 'badge-light');
+            el('yawNow').textContent = yaw.toFixed(2);
+            el('yawBar').style.width = Math.max(0, Math.min(100, (yaw + 1) * 50)) + '%';
         }
 
         // ---------------- Pairing ----------------
@@ -237,12 +417,13 @@
             }
         }
 
-        // ---------------- Loop absensi ----------------
+        // ---------------- Loop ----------------
 
         el('btnStart').addEventListener('click', function () {
             el('btnStart').classList.add('d-none');
             el('btnStop').classList.remove('d-none');
-            setStatus('Berjalan. Silakan berdiri di depan kamera.', 'ok');
+            mulaiTantangan();
+            setStatus('Berjalan. Berdiri di depan kamera.', 'ok');
             timer = setInterval(tick, SCAN_INTERVAL_MS);
         });
 
@@ -252,7 +433,15 @@
             if (timer) { clearInterval(timer); timer = null; }
             el('btnStop').classList.add('d-none');
             el('btnStart').classList.remove('d-none');
+            el('bigHint').textContent = '';
+            tunjukArah(null, false);
             setStatus('Dihentikan.', 'warn');
+        }
+
+        function targetFase() {
+            if (fase === 'depan' || fase === 'balik') return 'frontal';
+            if (fase === 'toleh') return arah;
+            return null;
         }
 
         async function tick() {
@@ -261,6 +450,63 @@
             try {
                 const r = await JargonFace.describe(el('video'));
 
+                // Menunggu orang sebelumnya menyingkir sebelum tantangan
+                // baru dimulai. Tanpa ini, satu orang yang tetap berdiri di
+                // depan kamera akan diminta menoleh terus-menerus.
+                if (fase === 'tunggu_kosong') {
+                    tampilkanArah(r.pose, r.yaw, null);
+                    tunjukArah(null, false);
+                    el('bigHint').textContent = '';
+                    setStatus('Selesai. Silakan bergeser, siswa berikutnya maju.', 'ok');
+                    return;
+                }
+
+                const target = targetFase();
+                tampilkanArah(r.pose, r.yaw, target);
+
+                const cocok = r.pose === target;
+                el('guide').className =
+                    'position-absolute top-50 start-50 translate-middle border border-4 rounded-circle opacity-50 '
+                    + (cocok ? 'border-success' : 'border-white');
+
+                tunjukArah(target, cocok);
+
+                if (!cocok) {
+                    streak.reset();
+                    el('bigHint').textContent =
+                        fase === 'depan' ? 'Langkah 1 dari 3'
+                        : fase === 'toleh' ? 'Langkah 2 dari 3'
+                        : 'Langkah 3 dari 3';
+                    setStatus('Terdeteksi ' + JargonFace.poseLabel(r.pose) + '.', 'warn');
+                    return;
+                }
+
+                if (!streak.push(r.pose)) return;
+
+                if (fase === 'depan') {
+                    fase = 'toleh';
+                    streak.reset();
+                    gambarLangkah();
+                    tunjukArah(arah, false);
+                    setStatus('Sekarang menoleh ke ' + labelArah(arah).toLowerCase() + '.', 'ok');
+                    return;
+                }
+
+                if (fase === 'toleh') {
+                    fase = 'balik';
+                    streak.reset();
+                    gambarLangkah();
+                    tunjukArah('frontal', false);
+                    setStatus('Bagus. Hadap depan lagi untuk menyelesaikan.', 'ok');
+                    return;
+                }
+
+                // fase === 'balik' dan sudah stabil menghadap depan.
+                //
+                // Embedding yang DIKIRIM diambil dari frame frontal ini —
+                // bukan dari frame saat menoleh. Sampel frontal paling
+                // sebanding dengan pendaftaran, dan wajah menoleh punya
+                // embedding yang jauh berbeda.
                 if (r.descriptor.length !== EMB_DIM) {
                     setStatus('Dimensi model (' + r.descriptor.length + ') tidak sesuai server ('
                         + EMB_DIM + ').', 'error');
@@ -269,12 +515,22 @@
                 }
 
                 await send(r.descriptor);
+                fase = 'tunggu_kosong';
+                streak.reset();
+                gambarLangkah();
             } catch (e) {
-                // Galat deteksi bukan kegagalan - itu keadaan normal saat
-                // tidak ada orang di depan kamera. Ditampilkan sebagai
-                // petunjuk, bukan sebagai error.
                 const soft = ['no_face', 'many_faces', 'too_far'];
                 if (e && soft.indexOf(e.code) >= 0) {
+                    streak.reset();
+                    el('poseNow').textContent = '-';
+
+                    // Wajah menghilang = orang berikutnya. Tantangan diundi
+                    // ulang, sehingga arahnya tidak sama untuk semua orang.
+                    if (fase === 'tunggu_kosong' || fase !== 'depan') {
+                        mulaiTantangan();
+                    }
+                    tunjukArah('frontal', false);
+                    el('bigHint').textContent = '';
                     setStatus(e.message, e.code === 'no_face' ? null : 'warn');
                 } else {
                     setStatus('Galat: ' + (e.message || e), 'error');
@@ -285,6 +541,7 @@
         }
 
         async function send(descriptor) {
+            setStatus('Mengirim...', null);
             const res = await fetch(API + '/v1/kiosk/recognize', {
                 method: 'POST',
                 headers: {
@@ -295,14 +552,7 @@
                 body: JSON.stringify({
                     embedding: descriptor,
                     model_version: MODEL_VER,
-                    // Liveness dari browser TIDAK diklaim tinggi.
-                    //
-                    // Halaman ini tidak memeriksa kedip atau gerak kepala,
-                    // jadi mengirim 1.0 akan berbohong kepada server dan
-                    // membuat ambang FACE_MIN_LIVENESS tidak berarti.
-                    // Operator hadir mengawasi layar - itu penjaganya,
-                    // bukan angka ini.
-                    liveness_score: 0.5,
+                    liveness_score: LIVENESS_LULUS,
                     client_time: new Date().toISOString(),
                     nonce: JargonFace.nonce(),
                     classroom_id: device.classroom_id || null
@@ -356,9 +606,6 @@
             setStatus(message || (matched ? 'Tercatat.' : 'Tidak dikenali.'),
                       matched ? 'ok' : 'warn');
 
-            // Riwayat hanya menambah baris untuk PERUBAHAN. Orang yang
-            // berdiri diam menghasilkan balasan yang sama berkali-kali, dan
-            // mencatat semuanya membuat riwayat tidak terbaca.
             const key = (s ? s.id : 'unknown') + '|' + (data.action || '');
             if (key === lastKey) return;
             lastKey = key;
@@ -369,8 +616,8 @@
             if (body.dataset.filled !== '1') { body.innerHTML = ''; body.dataset.filled = '1'; }
 
             const tr = document.createElement('tr');
-            const nameCell = document.createElement('td');
-            nameCell.className = 'ps-4 py-3';
+            const cell = document.createElement('td');
+            cell.className = 'ps-4 py-3';
 
             const nm = document.createElement('span');
             nm.className = 'fw-semibold fs-7 d-block';
@@ -380,10 +627,11 @@
             meta.className = 'text-muted fs-9';
             meta.textContent = (s && s.classroom_name ? s.classroom_name + ' - ' : '')
                 + new Date().toLocaleTimeString('id-ID')
+                + ' - toleh ' + labelArah(arah).toLowerCase()
                 + (message ? ' - ' + message : '');
 
-            nameCell.append(nm, meta);
-            tr.append(nameCell);
+            cell.append(nm, meta);
+            tr.append(cell);
             body.prepend(tr);
         }
 
@@ -394,6 +642,7 @@
 
         device = loadDevice();
         showPanels();
+        gambarLangkah();
         if (device) boot();
     })();
     </script>

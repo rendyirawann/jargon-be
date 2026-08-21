@@ -958,24 +958,107 @@ Di **aplikasi mobile**, menu `face_recognition` dibatasi lebih sempit lagi
 bisa dicatat dari ponsel pribadi siapa pun yang kebetulan memegang izin
 kios.
 
+### Alur berpandu: depan, menoleh, depan lagi
+
+Kedua halaman **memandu** posisi kepala di layar — panah besar berkedip,
+teks instruksi, lingkaran panduan yang berubah hijau saat posisi benar, dan
+indikator arah kepala yang terdeteksi.
+
+**Pendaftaran** mengambil tiga pose berurutan:
+
+| Langkah | Pose | Disimpan sebagai |
+|---|---|---|
+| 1 | menghadap depan | `frontal` |
+| 2 | menoleh ke kanan | `right` |
+| 3 | menoleh ke kiri | `left` |
+
+Foto diambil **otomatis** begitu posisi benar dan tertahan 5 frame
+berurutan — operator tidak menekan tombol. Kemajuannya dibaca dari **data**,
+bukan disimpan di JavaScript: operator yang berhenti setelah pose depan
+akan melanjutkan tepat di pose berikutnya walau tab ditutup atau halaman
+disegarkan.
+
+Pose ditentukan langkah, **bukan dipilih operator**. Operator yang salah
+memilih akan menyimpan foto depan sebagai sampel "kanan", dan kekeliruan
+itu baru terasa nanti sebagai pengenalan yang buruk.
+
+**Absensi** memakai tiga fase sebagai uji kehidupan:
+
+1. Hadap depan
+2. **Menoleh ke arah yang diundi sistem** — kanan atau kiri
+3. Hadap depan lagi → embedding frontal inilah yang dikirim
+
+Arah diundi, bukan dipilih siswa: tantangan yang bisa diramalkan dapat
+disiapkan lebih dulu — satu video pendek berisi wajah menoleh ke kanan
+sudah cukup untuk melewatinya setiap kali. Arah yang diundi pada saat itu
+tidak bisa disiapkan. Untuk menerima arah mana pun, setel
+`TANTANGAN_ACAK = false` di `scan.blade.php`.
+
+Embedding yang dikirim diambil dari frame **frontal** terakhir, bukan dari
+frame saat menoleh: sampel frontal paling sebanding dengan pendaftaran, dan
+wajah menoleh punya embedding yang jauh berbeda.
+
+Setelah tercatat, halaman menunggu wajah **menyingkir** sebelum tantangan
+baru diundi. Tanpa itu, satu orang yang tetap berdiri di depan kamera akan
+diminta menoleh terus-menerus.
+
+### Arah kepala: yaw, dan cara memperbaiki bila terbalik
+
+Arah kepala diperkirakan dari 68 titik landmark:
+
+```
+yaw = SIGN × (hidung.x − tengahMata.x) / jarakAntarMata
+```
+
+Dibagi jarak antar-mata, bukan lebar kotak wajah — jarak antar-mata ikut
+mengecil saat kepala menoleh, sehingga nilainya lebih stabil terhadap jarak
+orang ke kamera.
+
+| Ambang | Nilai | Arti |
+|---|---|---|
+| `YAW_FRONTAL_MAX` | 0.14 | di bawah ini dianggap menghadap depan |
+| `YAW_TURN_MIN` | 0.30 | di atas ini dianggap sudah menoleh |
+
+Jarak di antara keduanya sengaja ada: tanpa itu status akan berkedip antara
+"depan" dan "menoleh" saat kepala sedang bergerak, dan langkah pendaftaran
+tertangkap pada posisi setengah jalan.
+
+**Bila petunjuk kanan/kiri terasa terbalik** — mis. pada kamera yang sudah
+mencerminkan keluarannya sendiri — ubah `YAW_SIGN` dari `-1` menjadi `1` di
+`assets/js/jargon-face.js`. Angka yaw ditampilkan di layar kedua halaman
+justru untuk itu: arah tandanya dapat dipastikan dalam hitungan detik,
+bukan ditebak.
+
 ### Liveness
 
-Halaman web **tidak** memeriksa kedip atau gerak kepala, dan karena itu
-mengirim `liveness_score: 0.5` — bukan 1.0. Mengirim 1.0 akan berbohong
-kepada server dan membuat ambang `FACE_MIN_LIVENESS` tidak berarti.
+Setelah tantangan menoleh lolos, halaman mengirim `liveness_score: 0.9` —
+bukan 1.0.
 
-Penjaganya adalah operator yang hadir mengawasi layar. Untuk gerbang tanpa
-pengawasan, pakai tablet dengan liveness pasif, bukan halaman ini.
+Gerak kepala membuktikan ini bukan foto cetak, tetapi bukan bukti mutlak:
+**rekaman video wajah menoleh masih bisa menipu**. Melaporkan 1.0 akan
+berbohong kepada server dan membuat `FACE_MIN_LIVENESS` tidak berarti
+sebagai pengaman.
+
+Untuk gerbang tanpa pengawasan, itu belum cukup. Yang menutup celah
+terakhir adalah anti-spoof khusus (mendeteksi tekstur layar/cetakan), dan
+itu belum ada di sistem ini.
 
 ### Batasan yang perlu diketahui
 
-* **Foto cetak dapat menipu halaman ini.** Tanpa liveness, selembar foto di
-  depan webcam akan dikenali. Jangan dipakai tanpa pengawasan.
+* **Rekaman video masih bisa menipu.** Tantangan menoleh mengalahkan foto
+  cetak, bukan video. Untuk gerbang tanpa pengawasan, tetap perlu
+  anti-spoof.
 * Halaman harus dibuka lewat **HTTPS atau localhost** — browser menolak
   memberi akses kamera pada origin lain.
 * Model ~7 MB diunduh browser sekali, lalu di-cache.
 * Menolak bila **lebih dari satu wajah** terdeteksi: pada absensi, menebak
   berarti mencatat kehadiran orang yang salah.
+* Tampilan video **dicerminkan** seperti kaca, supaya "menoleh ke kanan"
+  sesuai dengan yang dilihat di layar. Perhitungan yaw memakai piksel asli,
+  bukan tampilan itu.
+* Tombol **Ambil sekarang** pada pendaftaran adalah jalan darurat untuk
+  kamera bersudut ekstrem. Halaman absensi **tidak** punya jalan seperti
+  itu — melewati tantangan berarti meniadakan seluruh gunanya.
 
 ---
 
