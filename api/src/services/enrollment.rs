@@ -357,7 +357,14 @@ mod tests {
             data.extend_from_slice(&buf);
             samples.push(Sample { student_id: *sid, embedding_id: Uuid::new_v4() });
         }
-        SchoolSlice { dim, samples, data, loaded_at: Instant::now(), model_version: "t".into() }
+        SchoolSlice {
+            dim,
+            samples,
+            data,
+            loaded_at: Instant::now(),
+            model_version: "t".into(),
+            match_threshold: None,
+        }
     }
 
     #[test]

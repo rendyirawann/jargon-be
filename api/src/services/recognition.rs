@@ -207,7 +207,13 @@ pub async fn recognize(
     let candidates_scanned = search.candidates_scanned;
     // Dihitung sebelum `search.best` dipindahkan keluar di bawah.
     let margin = search.margin();
-    let threshold = effective_threshold(state, device.school_id).await?;
+    // Ambang dibaca dari slice yang SUDAH di-cache, bukan lewat query
+    // tersendiri. Lihat catatan pada SchoolSlice::match_threshold: satu
+    // query per scan dikalikan ~520 scan/detik adalah beban nyata untuk
+    // nilai yang hampir tidak pernah berubah.
+    let threshold = slice
+        .match_threshold
+        .unwrap_or(state.cfg.face.match_threshold);
 
     let Some(best) = search.best else {
         return finish(
@@ -673,17 +679,6 @@ pub async fn load_today_attendance(
     Ok(row)
 }
 
-/// Ambang efektif: nilai khusus sekolah bila ada, jika tidak default global.
-async fn effective_threshold(state: &AppState, school_id: Uuid) -> ApiResult<f32> {
-    let row: Option<(Option<f32>,)> =
-        sqlx::query_as("SELECT face_match_threshold FROM schools WHERE id = $1")
-            .bind(school_id)
-            .fetch_optional(&state.db)
-            .await?;
-    Ok(row
-        .and_then(|r| r.0)
-        .unwrap_or(state.cfg.face.match_threshold))
-}
 
 /// Apakah embedding identik pernah dikirim perangkat ini dalam 10 menit
 /// terakhir? Embedding wajah asli selalu sedikit berbeda tiap frame, jadi

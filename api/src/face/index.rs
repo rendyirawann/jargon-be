@@ -50,6 +50,21 @@ pub struct SchoolSlice {
     /// Versi model embedding yang termuat; dipakai saat memeriksa apakah satu
     /// sekolah masih memakai model lama setelah upgrade.
     pub model_version: String,
+    /// Ambang kemiripan khusus sekolah ini, bila disetel.
+    ///
+    /// Ikut di-cache di sini, BUKAN diambil per scan.
+    ///
+    /// Sebelumnya `effective_threshold` menjalankan satu query terpisah pada
+    /// SETIAP pemindaian. Pada jam puncak absensi (~520 scan/detik) itu
+    /// berarti 520 query per detik untuk satu nilai yang berubah paling
+    /// sering setahun sekali. Dimuat bersama slice: satu query lebih sedikit
+    /// per scan, tanpa struktur cache tambahan.
+    ///
+    /// Harganya: perubahan ambang di dashboard baru berlaku setelah TTL
+    /// slice habis (FACE_INDEX_TTL_SECS, bawaan 300 detik) atau setelah ada
+    /// pendaftaran wajah di sekolah itu. Untuk nilai yang disetel sekali
+    /// lalu dibiarkan, itu pertukaran yang layak.
+    pub match_threshold: Option<f32>,
 }
 
 impl SchoolSlice {
@@ -206,6 +221,20 @@ impl FaceIndex {
     async fn load(&self, pool: &PgPool, school_id: Uuid) -> ApiResult<SchoolSlice> {
         let started = Instant::now();
 
+        // Ambang sekolah diambil BERSAMA slice, bukan per scan. Lihat
+        // catatan pada SchoolSlice::match_threshold.
+        let threshold: Option<(Option<f32>,)> =
+            sqlx::query_as("SELECT face_match_threshold FROM schools WHERE id = $1")
+                .bind(school_id)
+                .fetch_optional(pool)
+                .await?;
+        let match_threshold = threshold.and_then(|r| r.0);
+
+        // ORDER BY (student_id, created_at) dijawab langsung index
+        // face_embeddings_school_student_idx, sehingga tidak ada tahap sort.
+        // Tanpa index itu, setiap pemuatan slice mengurutkan ulang seluruh
+        // vektor sekolah — pekerjaan yang berulang setiap TTL habis, untuk
+        // ribuan sekolah.
         let rows: Vec<(Uuid, Uuid, pgvector::Vector, String)> = sqlx::query_as(
             r#"
             SELECT fe.id, fe.student_id, fe.embedding, fe.model_version
@@ -215,7 +244,7 @@ impl FaceIndex {
               AND fe.is_active
               AND s.deleted_at IS NULL
               AND s.status = 'aktif'
-            ORDER BY fe.student_id, fe.created_at
+            ORDER BY fe.school_id, fe.student_id, fe.created_at
             "#,
         )
         .bind(school_id)
@@ -259,6 +288,7 @@ impl FaceIndex {
             data,
             loaded_at: Instant::now(),
             model_version,
+            match_threshold,
         })
     }
 }
@@ -283,6 +313,7 @@ mod tests {
             data,
             loaded_at: Instant::now(),
             model_version: "test".into(),
+            match_threshold: None,
         }
     }
 
@@ -334,6 +365,7 @@ mod tests {
             data: vec![],
             loaded_at: Instant::now(),
             model_version: "test".into(),
+            match_threshold: None,
         };
         let out = s.search(&[1.0, 0.0, 0.0]);
         assert!(out.best.is_none());
