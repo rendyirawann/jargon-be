@@ -290,6 +290,7 @@
 
         const el = (id) => document.getElementById(id);
         let device = null, stream = null, timer = null, busy = false, count = 0;
+        let timerRiwayat = null;   // penyegaran panel riwayat
         // Dua angka berbeda, dan itu yang membuat "0 tercatat" tampak bertabrakan
         // dengan daftar yang berisi: `count` hanya absensi yang benar-benar baru,
         // sedangkan daftar riwayat memuat SETIAP pemindaian termasuk yang ditolak
@@ -715,16 +716,33 @@
                         const tr = document.createElement('tr');
                         const td = document.createElement('td');
                         td.className = 'ps-4 py-3';
+
+                        // Nama siswa dipasang lewat textContent, bukan innerHTML:
+                        // nama berasal dari basis data dan tidak boleh bisa
+                        // menyuntikkan markup ke layar kios.
+                        const barisNama = document.createElement('span');
+                        barisNama.className = 'fw-semibold fs-7 d-block';
+                        barisNama.textContent = it.student_name || '-';
+
+                        // Kelas warna dikirim server (badge-light-success dsb.);
+                        // disaring agar nilai tak terduga tidak menambah kelas lain.
+                        const lencana = document.createElement('span');
+                        const warna = /^badge-light-[a-z]+$/.test(it.badge || '')
+                            ? it.badge : 'badge-light';
+                        lencana.className = 'badge ' + warna + ' fs-9 ms-2';
+                        lencana.textContent = it.status_label || it.status || '';
+                        barisNama.append(lencana);
+
                         const jam = [];
                         if (it.check_in) jam.push('masuk ' + it.check_in);
                         if (it.check_out) jam.push('pulang ' + it.check_out);
-                        td.innerHTML = '<span class="fw-semibold fs-7 d-block">'
-                            + (it.student_name || '-')
-                            + ' <span class="badge badge-light fs-9 ms-1">' + (it.status_label || it.status || '') + '</span>'
-                            + '</span><span class="text-muted fs-9">'
-                            + (it.classroom_name ? it.classroom_name + ' - ' : '')
-                            + jam.join(' - ')
-                            + '</span>';
+
+                        const barisJam = document.createElement('span');
+                        barisJam.className = 'text-muted fs-9';
+                        barisJam.textContent = (it.classroom_name ? it.classroom_name + ' - ' : '')
+                            + jam.join(' - ');
+
+                        td.append(barisNama, barisJam);
                         tr.append(td);
                         body.append(tr);
                     });
@@ -736,6 +754,11 @@
             const btnMuatRiwayat = document.getElementById('btnMuatRiwayat');
             if (btnMuatRiwayat) btnMuatRiwayat.addEventListener('click', muatRiwayatHariIni);
             muatRiwayatHariIni();
+
+            // Kios sering dibiarkan terbuka sepanjang hari sementara gerbang lain
+            // ikut mencatat. Tanpa penyegaran berkala, "hari ini" hanya benar
+            // sampai pemindaian terakhir di perangkat ini saja.
+            timerRiwayat = setInterval(muatRiwayatHariIni, 60000);
 
 
 
@@ -838,9 +861,16 @@
                 + (berhasilBaru ? 'text-success' : (sudahLengkap ? 'text-warning' : 'text-danger'));
             el('resultMeta').textContent = message || '';
 
+            // Dideklarasikan di lingkup fungsi, bukan di dalam blok if: baris
+            // "Hari ini: masuk ... - pulang ..." di bawah ikut memakainya.
+            // Sebelumnya `const a` berada di dalam if (data.attendance), sehingga
+            // setiap pemindaian berhenti dengan "ReferenceError: a is not defined":
+            // panel hasil sudah terisi, lalu popup berhasil dan penyegaran riwayat
+            // tidak pernah dijalankan.
+            const a = data.attendance || null;
+
             let badge = '';
-            if (data.attendance) {
-                const a = data.attendance;
+            if (a) {
                 badge = '<span class="badge badge-light-primary">' + (a.status || '') + '</span>';
                 if (a.late_minutes > 0) {
                     badge += ' <span class="badge badge-light-warning">terlambat '
@@ -869,7 +899,7 @@
                 berhasilBaru ? 'ok' : 'warn');
 
 
-            popupHasil(berhasilBaru, s, data.attendance || null, message, sudahLengkap);
+            popupHasil(berhasilBaru, s, a, message, sudahLengkap);
 
             const key = (s ? s.id : 'unknown') + '|' + (data.action || '');
             if (key === lastKey) return;
@@ -884,6 +914,7 @@
 
         window.addEventListener('pagehide', function () {
             if (timer) clearInterval(timer);
+            if (timerRiwayat) clearInterval(timerRiwayat);
             if (stream) stream.getTracks().forEach((t) => t.stop());
         });
 
