@@ -1181,10 +1181,13 @@ Wajib, dua alasan berbeda:
    `HTTP_PORT` selain 80 seluruh redirect Laravel kehilangan portnya dan
    mendarat di server lain di mesin yang sama. Gejalanya: login tampak
    gagal padahal kata sandinya benar.
-2. **nginx mengunci alamat IP upstream saat start.** Container `api` yang
-   baru dibangun mendapat IP baru; nginx masih memakai yang lama, dan semua
-   endpoint API menjawab `502 Bad Gateway` meski API-nya sehat. Ini berlaku
-   pada SETIAP pembaruan yang membangun ulang `api`, bukan hanya yang ini.
+2. **nginx bisa memegang alamat IP upstream yang lama.** Container `api`
+   yang baru dibangun kadang mendapat IP baru; bila nginx masih memakai
+   yang lama, semua endpoint API menjawab `502 Bad Gateway` meski API-nya
+   sehat. Tidak selalu terjadi — bergantung apakah Docker memberi IP yang
+   sama — dan itulah masalahnya: gejalanya muncul sesekali dan terlihat
+   seperti API yang rusak. Restart nginx menghilangkan kemungkinan itu
+   dengan biaya beberapa detik, jadi lakukan saja setiap kali.
 
 ### Langkah 7 — periksa
 
