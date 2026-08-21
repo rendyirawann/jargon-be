@@ -182,6 +182,11 @@
                     <div id="resultName" class="fs-2 fw-bold text-gray-900">Menunggu</div>
                     <div id="resultMeta" class="fs-7 text-muted mt-2">Tekan "Mulai Absensi"</div>
                     <div id="resultBadge" class="mt-3"></div>
+                    {{-- Keadaan HARI INI, bukan sesi ini. Penghitung di panel riwayat
+                         hanya menghitung sejak halaman dibuka, sehingga "0 absensi"
+                         sempat terbaca seolah absensi siswa hilang. Jam masuk dan
+                         pulang dari server menjawabnya tanpa ambiguitas. --}}
+                    <div id="resultHariIni" class="fs-8 text-muted mt-2"></div>
                 </div>
             </div>
 
@@ -203,7 +208,12 @@
 
             <div class="card card-flush border border-gray-200">
                 <div class="card-header pt-5">
-                    <h3 class="card-title fw-bold">Riwayat Sesi Ini</h3>
+                    <h3 class="card-title fw-bold d-block">
+                            Riwayat Sesi Ini
+                            <span class="d-block fs-9 fw-normal text-muted">
+                                hanya sejak halaman ini dibuka — bukan riwayat absensi siswa
+                            </span>
+                        </h3>
                     <div class="card-toolbar">
                         <span id="counter" class="badge badge-light">0 absensi / 0 scan</span>
                         {{-- Riwayat ini hanya milik sesi browser ini (tidak disimpan
@@ -682,7 +692,27 @@
 
         if (btnHapusRiwayat) {
 
-            btnHapusRiwayat.addEventListener('click', function () {
+            btnHapusRiwayat.addEventListener('click', async function () {
+                    // Konfirmasi dulu. Yang dihapus hanya tampilan, tetapi tanpa
+                    // konfirmasi tombol ini mudah tersenggol dan operator kehilangan
+                    // catatan pemindaian yang baru saja ia amati.
+                    if (window.Swal) {
+                        const r = await Swal.fire({
+                            title: 'Hapus riwayat sesi ini?',
+                            html: 'Daftar pemindaian di layar ini dibersihkan.<br>'
+                                  + '<b>Data absensi siswa tidak terpengaruh</b> — '
+                                  + 'riwayat ini tidak pernah dikirim ke server.',
+                            icon: 'question',
+                            showCancelButton: true,
+                            confirmButtonText: 'Hapus',
+                            cancelButtonText: 'Batal',
+                            confirmButtonColor: '#dc2626',
+                            reverseButtons: true,
+                        });
+                        if (!r.isConfirmed) return;
+                    } else if (!confirm('Hapus riwayat sesi ini? Data absensi siswa tidak terpengaruh.')) {
+                        return;
+                    }
 
                 const body = el('logBody');
 
@@ -813,6 +843,19 @@
                 badge += ' <span class="badge badge-light">skor ' + data.similarity.toFixed(3) + '</span>';
             }
             el('resultBadge').innerHTML = badge;
+
+            const hariIni = [];
+            if (a && a.check_in_at) {
+                hariIni.push('masuk ' + new Date(a.check_in_at)
+                    .toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+            }
+            if (a && a.check_out_at) {
+                hariIni.push('pulang ' + new Date(a.check_out_at)
+                    .toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+            }
+            el('resultHariIni').textContent = hariIni.length
+                ? 'Hari ini: ' + hariIni.join(' - ')
+                : '';
 
             setStatus(message || (berhasilBaru ? 'Tercatat.' : 'Tidak dikenali.'),
                 berhasilBaru ? 'ok' : 'warn');
