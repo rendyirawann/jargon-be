@@ -1,0 +1,669 @@
+/* =====================================================================
+   Jargon GO — tema dashboard Dinas Pendidikan Sumut
+   ---------------------------------------------------------------------
+   Berkas ini MILIK PROYEK, bukan bagian Metronic. Dimuat SETELAH
+   style.bundle.css supaya menimpanya tanpa menyunting berkas vendor:
+   memperbarui Metronic tidak akan menghapus perubahan di sini.
+
+   Empat hal yang diatur:
+     1. Palet teal-navy
+     2. Skala huruf dinaikkan (bawaan tema 13px, terasa kecil di layar besar)
+     3. Lebar penuh (bawaan tema mengunci isi di tengah lewat container-xxl)
+     4. SIDEBAR DITAMPILKAN. Markup #kt_app_sidebar dan JS toggle-nya sudah
+        ada di repo, tetapi CSS-nya tidak pernah ditulis sehingga sidebar
+        tampil sebagai kolom setipis isinya dan praktis tak terlihat.
+   ===================================================================== */
+
+:root {
+    /* ---- palet ---- */
+    --jg-primary: #0f766e;          /* teal tua — aksi utama            */
+    --jg-primary-hover: #0b5f58;
+    --jg-primary-soft: #e6f2f1;
+    --jg-accent: #1e3a8a;           /* navy — bar menu & judul          */
+    --jg-accent-dark: #172e6e;
+
+    --jg-bg: #f6f8fa;
+    --jg-surface: #ffffff;
+    --jg-border: #e4e8ee;
+    --jg-text: #1b2330;
+    --jg-text-muted: #64748b;
+
+    /* ---- status absensi: semantik, dibaca lebih dulu daripada angka ---- */
+    --jg-hadir: #16a34a;
+    --jg-terlambat: #d97706;
+    --jg-izin: #2563eb;
+    --jg-alfa: #dc2626;
+    --jg-belum: #64748b;
+
+    /* ---- skala huruf ---- */
+    --jg-fs-base: 0.9375rem;        /* 15px (dari 13px)                 */
+    --jg-fs-sm: 0.8125rem;
+    --jg-fs-lg: 1.0625rem;
+    --jg-fs-metric: 2.5rem;
+
+    --jg-sidebar-w: 280px;
+    --jg-radius: 12px;
+}
+
+/* Palet dipetakan ke variabel Bootstrap/Metronic supaya SELURUH komponen
+   bawaan (tombol, badge, tautan, pagination, fokus form, datatables) ikut
+   berubah tanpa menulis ulang tiap komponen satu per satu. */
+:root,
+[data-bs-theme="light"] {
+    --bs-primary: var(--jg-primary);
+    --bs-primary-rgb: 15, 118, 110;
+    --bs-primary-active: var(--jg-primary-hover);
+    --bs-link-color: var(--jg-primary);
+    --bs-link-color-rgb: 15, 118, 110;
+    --bs-link-hover-color: var(--jg-primary-hover);
+    --bs-body-color: var(--jg-text);
+    --bs-body-bg: var(--jg-bg);
+    --bs-border-color: var(--jg-border);
+    --bs-body-font-size: var(--jg-fs-base);
+    --bs-focus-ring-color: rgba(15, 118, 110, 0.25);
+    --kt-primary: var(--jg-primary);
+    --kt-primary-active: var(--jg-primary-hover);
+    --kt-primary-light: var(--jg-primary-soft);
+    --kt-text-primary: var(--jg-primary);
+}
+
+/* =====================================================================
+   1. LEBAR PENUH
+   container-xxl di layout sudah diganti container-fluid; baris di bawah
+   ini jaring pengaman untuk view lain yang masih memakai pembatas lama.
+   ===================================================================== */
+.container,
+.container-xxl,
+.container-xl,
+.container-lg {
+    max-width: 100% !important;
+    width: 100% !important;
+}
+
+#kt_content_container {
+    padding-inline: 0 !important;
+    gap: 0;
+}
+
+.content {
+    min-width: 0;               /* tanpa ini tabel lebar mendorong tata letak */
+    padding: clamp(14px, 1.5vw, 26px) clamp(16px, 2vw, 32px) 48px !important;
+}
+
+/* =====================================================================
+   2. HURUF
+   ===================================================================== */
+body {
+    font-size: var(--jg-fs-base);
+    line-height: 1.6;
+    color: var(--jg-text);
+    background-color: var(--jg-bg);
+}
+
+.fs-8 { font-size: 0.75rem !important; }
+.fs-7 { font-size: var(--jg-fs-sm) !important; }
+.fs-6 { font-size: var(--jg-fs-base) !important; }
+.fs-5 { font-size: var(--jg-fs-lg) !important; }
+.fs-4 { font-size: 1.2rem !important; }
+.fs-3 { font-size: 1.35rem !important; }
+.fs-2x { font-size: 2rem !important; }
+
+h1, .h1 { font-size: 1.75rem; }
+h2, .h2 { font-size: 1.5rem; }
+h3, .h3 { font-size: 1.25rem; }
+h4, .h4 { font-size: 1.125rem; }
+
+h1, h2, h3, h4, .card-title {
+    color: var(--jg-accent);
+    letter-spacing: -0.01em;
+}
+
+.table > :not(caption) > * > * {
+    padding: 0.85rem 0.9rem;
+    font-size: var(--jg-fs-base);
+}
+
+.table thead th {
+    font-size: var(--jg-fs-sm) !important;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--jg-text-muted) !important;
+    font-weight: 700;
+    background: #fbfcfd;
+}
+
+.form-control,
+.form-select {
+    font-size: var(--jg-fs-base);
+    border-color: var(--jg-border);
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--jg-primary);
+    box-shadow: 0 0 0 0.2rem rgba(15, 118, 110, 0.15);
+}
+
+.form-label {
+    font-size: var(--jg-fs-sm);
+    font-weight: 600;
+}
+
+.btn {
+    font-size: var(--jg-fs-base);
+    border-radius: 10px;
+    font-weight: 600;
+}
+
+.btn.btn-sm {
+    font-size: var(--jg-fs-sm);
+}
+
+.btn-primary {
+    background-color: var(--jg-primary);
+    border-color: var(--jg-primary);
+    color: #fff;
+}
+
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:active,
+.btn-primary.active {
+    background-color: var(--jg-primary-hover) !important;
+    border-color: var(--jg-primary-hover) !important;
+    color: #fff !important;
+}
+
+.btn-light-primary {
+    background-color: var(--jg-primary-soft);
+    color: var(--jg-primary);
+}
+
+.btn-light-primary:hover {
+    background-color: var(--jg-primary);
+    color: #fff;
+}
+
+.text-primary { color: var(--jg-primary) !important; }
+.bg-primary { background-color: var(--jg-primary) !important; }
+.badge-light-primary { background: var(--jg-primary-soft); color: var(--jg-primary); }
+
+/* =====================================================================
+   3. HEADER — satu baris: logo, menu, lalu ikon profil di kanan
+   ===================================================================== */
+#kt_header.header {
+    background: var(--jg-accent);
+    border-bottom: 0;
+    box-shadow: none;
+}
+
+#kt_header > .container-fluid {
+    padding-inline: clamp(16px, 2vw, 32px);
+    min-height: 58px;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+#kt_header .separator { display: none; }
+
+/* Metronic (demo ini) dibuat untuk header DUA baris: `.header` diberi
+   height:160px dengan flex-direction:column, dan saat header menempel
+   `.wrapper` diberi padding-top:160px. Karena menu kini SEBARIS dengan logo,
+   keduanya dipangkas — kalau tidak, ada pita navy kosong ~95px di atas halaman,
+   lalu celah putih sebesar itu begitu header jadi sticky. */
+#kt_header.header {
+    height: 64px !important;
+    min-height: 64px;
+    flex-direction: row !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+}
+
+/* HANYA saat sticky. Tanpa pembatas ini, padding tetap dipasang meski header
+   masih mengalir normal, sehingga muncul celah putih 64px di atas header. */
+.header-fixed[data-kt-sticky-header="on"] .wrapper {
+    padding-top: 64px !important;
+}
+
+#kt_header > .container-fluid { flex-grow: 1; }
+
+/* Tautan tingkat pertama di bar navy.
+   Rantai anak (>) dipakai dengan sengaja: tanpa itu selektor ini ikut mengenai
+   tautan DI DALAM dropdown, dan dropdown berlatar putih jadi bertuliskan putih —
+   tidak terbaca sama sekali. */
+#kt_header_menu_wrapper > .header-menu > .menu > .menu-item > .menu-link,
+#kt_header_menu_wrapper > .header-menu > .menu > .menu-item > .menu-link .menu-title {
+    color: rgba(255, 255, 255, 0.9) !important;
+    font-size: var(--jg-fs-base) !important;
+    font-weight: 600;
+}
+
+#kt_header_menu_wrapper > .header-menu > .menu > .menu-item > .menu-link {
+    padding: 0.5rem 0.8rem !important;
+    border-radius: 9px;
+}
+
+#kt_header_menu_wrapper > .header-menu > .menu > .menu-item > .menu-link:hover,
+#kt_header_menu_wrapper > .header-menu > .menu > .menu-item.here > .menu-link,
+#kt_header_menu_wrapper > .header-menu > .menu > .menu-item.show > .menu-link {
+    background: rgba(255, 255, 255, 0.17) !important;
+}
+
+#kt_header_menu_wrapper > .header-menu > .menu > .menu-item > .menu-link .menu-icon i {
+    color: rgba(255, 255, 255, 0.82) !important;
+}
+
+#kt_header_menu_wrapper .menu-arrow:after {
+    border-color: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* Isi dropdown: kartu putih, teks gelap.
+   Kelas markupnya `menu-sub menu-sub-lg-dropdown` — BUKAN `menu-sub-dropdown`.
+   Versi sebelumnya menargetkan nama yang salah sehingga tidak pernah berlaku. */
+#kt_header .menu-sub {
+    background: var(--jg-surface);
+    border: 1px solid var(--jg-border);
+    border-radius: 12px;
+    box-shadow: 0 14px 38px rgba(16, 24, 40, 0.16);
+    padding: 0.5rem;
+    min-width: 240px;
+}
+
+#kt_header .menu-sub .menu-item > .menu-link,
+#kt_header .menu-sub .menu-item > .menu-link .menu-title {
+    color: var(--jg-text) !important;
+    font-weight: 600;
+}
+
+#kt_header .menu-sub .menu-item > .menu-link {
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem !important;
+}
+
+#kt_header .menu-sub .menu-item > .menu-link:hover,
+#kt_header .menu-sub .menu-item > .menu-link.active {
+    background: var(--jg-primary-soft) !important;
+}
+
+#kt_header .menu-sub .menu-item > .menu-link:hover .menu-title,
+#kt_header .menu-sub .menu-item > .menu-link.active .menu-title {
+    color: var(--jg-primary) !important;
+}
+
+#kt_header .menu-sub .separator { border-color: var(--jg-border); }
+
+#kt_header .jg-navgroup {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 800;
+    color: var(--jg-text-muted);
+    padding: 0.5rem 0.7rem 0.2rem;
+}
+
+/* Tombol ikon & profil di kanan supaya terbaca di atas navy */
+#kt_header .btn.btn-icon,
+#kt_header .btn.btn-custom {
+    background: rgba(255, 255, 255, 0.13);
+    border-color: transparent;
+    color: #fff;
+}
+
+#kt_header .btn.btn-icon:hover,
+#kt_header .btn.btn-custom:hover {
+    background: rgba(255, 255, 255, 0.24);
+}
+
+#kt_header .btn.btn-icon i,
+#kt_header .btn.btn-icon .svg-icon,
+#kt_header .btn.btn-custom i {
+    color: #fff !important;
+}
+
+#kt_header .symbol > img { border: 2px solid rgba(255, 255, 255, 0.35); }
+
+/* Drawer menu di layar kecil dipindahkan ke #kt_body (bukan di dalam navy),
+   jadi warnanya dikembalikan ke gelap agar terbaca di latar terang. */
+#kt_body > .header-menu .menu-link,
+#kt_body > .header-menu .menu-title {
+    color: var(--jg-text) !important;
+}
+
+/* =====================================================================
+   4. SIDEBAR
+   Markup dan JS toggle sudah ada di repo (#kt_app_sidebar,
+   #kt_sidebar_overlay, kelas .active). Yang belum ada CSS-nya — inilah
+   bagian itu.
+   ===================================================================== */
+#kt_app_sidebar {
+    width: var(--jg-sidebar-w);
+    flex: 0 0 var(--jg-sidebar-w);
+    background: var(--jg-surface);
+    border-right: 1px solid var(--jg-border);
+    min-height: calc(100vh - 114px);
+    align-self: stretch;
+    padding-bottom: 2rem;
+}
+
+#kt_app_sidebar .menu-link {
+    font-size: var(--jg-fs-base) !important;
+    font-weight: 600;
+    padding: 0.6rem 0.75rem !important;
+    border-radius: 10px;
+    color: var(--jg-text) !important;
+}
+
+#kt_app_sidebar .menu-link .menu-title {
+    color: inherit !important;
+}
+
+#kt_app_sidebar .menu-link:hover {
+    background: var(--jg-bg) !important;
+}
+
+#kt_app_sidebar .menu-link:hover,
+#kt_app_sidebar .menu-link:hover .menu-title,
+#kt_app_sidebar .menu-link:hover .menu-icon i {
+    color: var(--jg-primary) !important;
+}
+
+#kt_app_sidebar .menu-link.active {
+    background: var(--jg-primary-soft) !important;
+    color: var(--jg-primary) !important;
+}
+
+#kt_app_sidebar .menu-link.active .menu-title,
+#kt_app_sidebar .menu-link.active .menu-icon i {
+    color: var(--jg-primary) !important;
+    font-weight: 700;
+}
+
+#kt_app_sidebar .menu-section,
+#kt_app_sidebar .menu-content .menu-heading {
+    font-size: 0.68rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 800 !important;
+    color: var(--jg-text-muted) !important;
+    padding-top: 1rem;
+}
+
+#kt_app_sidebar .menu-icon i {
+    font-size: 1.15rem;
+    color: var(--jg-text-muted) !important;
+}
+
+#kt_app_sidebar .separator {
+    border-color: var(--jg-border);
+}
+
+/* Lapisan gelap saat sidebar dibuka di layar kecil */
+#kt_sidebar_overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(16, 24, 40, 0.45);
+    z-index: 1039;
+}
+
+#kt_sidebar_overlay.active { display: block; }
+
+@media (max-width: 991.98px) {
+    #kt_app_sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        z-index: 1040;
+        transform: translateX(-100%);
+        transition: transform 0.2s ease;
+        box-shadow: 0 14px 44px rgba(16, 24, 40, 0.2);
+        overflow-y: auto;
+    }
+
+    #kt_app_sidebar.active { transform: translateX(0); }
+}
+
+/* =====================================================================
+   5. KARTU & KOMPONEN KHUSUS DASHBOARD
+   ===================================================================== */
+.card {
+    background: var(--jg-surface);
+    border: 1px solid var(--jg-border) !important;
+    border-radius: var(--jg-radius);
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.card-header {
+    border-bottom: 1px solid var(--jg-border);
+    min-height: unset;
+    padding: 1.05rem 1.3rem;
+}
+
+.card-body { padding: 1.3rem; }
+
+/* Kartu metrik ikhtisar: garis warna status di sisi kiri. Mewarnai garis,
+   bukan seluruh kartu — angka tetap mudah dibaca, statusnya tetap
+   terpindai sekejap. */
+.jg-stat {
+    position: relative;
+    overflow: hidden;
+}
+
+.jg-stat::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: var(--jg-belum);
+}
+
+.jg-stat--hadir::before { background: var(--jg-hadir); }
+.jg-stat--terlambat::before { background: var(--jg-terlambat); }
+.jg-stat--izin::before { background: var(--jg-izin); }
+.jg-stat--alfa::before { background: var(--jg-alfa); }
+.jg-stat--belum::before { background: var(--jg-belum); }
+
+.jg-stat__label {
+    font-size: var(--jg-fs-sm);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--jg-text-muted);
+}
+
+.jg-stat__value {
+    font-size: var(--jg-fs-metric);
+    font-weight: 800;
+    line-height: 1.1;
+    color: var(--jg-accent);
+    font-variant-numeric: tabular-nums;
+}
+
+.jg-stat--hadir .jg-stat__icon { color: var(--jg-hadir) !important; }
+.jg-stat--terlambat .jg-stat__icon { color: var(--jg-terlambat) !important; }
+.jg-stat--izin .jg-stat__icon { color: var(--jg-izin) !important; }
+.jg-stat--alfa .jg-stat__icon { color: var(--jg-alfa) !important; }
+.jg-stat--belum .jg-stat__icon { color: var(--jg-belum) !important; }
+
+.jg-page-title {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--jg-accent);
+}
+
+.jg-badge-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: var(--jg-fs-sm);
+    font-weight: 700;
+    padding: 0.26rem 0.6rem;
+    border-radius: 999px;
+    background: var(--jg-primary-soft);
+    color: var(--jg-primary);
+}
+
+.jg-progress {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--jg-bg);
+    overflow: hidden;
+}
+
+.jg-progress__bar {
+    height: 100%;
+    background: var(--jg-primary);
+    border-radius: 999px;
+}
+
+/* =====================================================================
+   6. LOGIN
+   ===================================================================== */
+.jg-auth {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: minmax(0, 460px) 1fr;
+    background: var(--jg-surface);
+}
+
+.jg-auth__form {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: clamp(24px, 4vw, 64px);
+}
+
+.jg-auth__brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 2.5rem;
+}
+
+.jg-auth__brand img { height: 44px; width: auto; }
+
+.jg-auth__brand-name {
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: var(--jg-accent);
+    line-height: 1.25;
+}
+
+.jg-auth__brand-sub {
+    font-size: var(--jg-fs-sm);
+    color: var(--jg-text-muted);
+}
+
+.jg-auth__title {
+    font-size: 1.7rem;
+    font-weight: 800;
+    color: var(--jg-accent);
+    margin-bottom: 0.35rem;
+}
+
+.jg-auth__sub {
+    font-size: var(--jg-fs-base);
+    color: var(--jg-text-muted);
+    margin-bottom: 2rem;
+}
+
+.jg-auth__aside {
+    position: relative;
+    background: linear-gradient(150deg, var(--jg-accent) 0%, var(--jg-accent-dark) 55%, var(--jg-primary) 100%);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: clamp(32px, 5vw, 88px);
+    overflow: hidden;
+}
+
+.jg-auth__aside h2 {
+    color: #fff;
+    font-size: clamp(1.6rem, 2.4vw, 2.3rem);
+    font-weight: 800;
+    line-height: 1.25;
+    margin-bottom: 1rem;
+}
+
+.jg-auth__aside p {
+    font-size: var(--jg-fs-lg);
+    color: rgba(255, 255, 255, 0.85);
+    max-width: 46ch;
+    margin-bottom: 2.5rem;
+}
+
+.jg-auth__points {
+    display: grid;
+    gap: 1rem;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-width: 44ch;
+}
+
+.jg-auth__points li {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    font-size: var(--jg-fs-base);
+    color: rgba(255, 255, 255, 0.92);
+}
+
+.jg-auth__points i,
+.jg-auth__points .jg-dot {
+    flex: 0 0 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.18);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    color: #fff;
+    margin-top: 2px;
+}
+
+/* Ornamen samar; pointer-events none supaya tidak menghalangi klik */
+.jg-auth__aside::after {
+    content: "";
+    position: absolute;
+    right: -12%;
+    bottom: -18%;
+    width: 58%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.07);
+    pointer-events: none;
+}
+
+.jg-auth__logo-watermark {
+    position: absolute;
+    right: 6%;
+    top: 8%;
+    width: 26%;
+    max-width: 260px;
+    opacity: 0.12;
+    pointer-events: none;
+}
+
+@media (max-width: 991.98px) {
+    .jg-auth { grid-template-columns: 1fr; }
+    .jg-auth__aside { display: none; }
+}
+
+/* =====================================================================
+   7. TOASTR — samakan bentuknya dengan kartu
+   ===================================================================== */
+#toast-container > div {
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(16, 24, 40, 0.2);
+    font-size: var(--jg-fs-base);
+    opacity: 1;
+}
+
+#toast-container > .toast-info { background-color: var(--jg-izin); }
+#toast-container > .toast-success { background-color: var(--jg-hadir); }
+#toast-container > .toast-warning { background-color: var(--jg-terlambat); }
+#toast-container > .toast-error { background-color: var(--jg-alfa); }

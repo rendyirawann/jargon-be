@@ -27,6 +27,7 @@
     <!--begin::Global Stylesheets Bundle(mandatory for all pages)-->
     <link href="{{ asset('assets/plugins/global/plugins.bundle.css') }}" rel="stylesheet" type="text/css" />
     <link href="{{ asset('assets/css/style.bundle.css') }}" rel="stylesheet" type="text/css" />
+    <link href="{{ asset('assets/css/jargon-theme.css') }}?v={{ filemtime(public_path('assets/css/jargon-theme.css')) }}" rel="stylesheet" type="text/css" />
     <!--end::Global Stylesheets Bundle-->
     <style>
         :root {
@@ -76,46 +77,35 @@
     <!--end::Theme mode setup on page load-->
     <!--begin::Root-->
     <div class="d-flex flex-column flex-root" id="kt_app_root">
-        <!--begin::Page bg image-->
-        <style>
-            body {
-                background-image: url('{{ asset('assets/media/patterns/circuit-board.svg') }}');
-            }
-
-            [data-bs-theme="dark"] body {
-                background-image: url('{{ asset('assets/media/auth/bg10-dark.jpeg') }}');
-            }
-        </style>
-        <!--end::Page bg image-->
         <!--begin::Authentication - Sign-in -->
-        <div class="d-flex flex-column flex-lg-row flex-column-fluid">
-            <!--begin::Body-->
+        {{-- Dua kolom: form di kiri, panel identitas di kanan.
+             Panel kanan disembunyikan di layar kecil oleh CSS
+             (.jg-auth__aside) supaya form mendapat ruang penuh. --}}
+        <div class="jg-auth">
             @yield('content')
-            <!--end::Body-->
-            <!--begin::Aside-->
-            <div class="d-flex flex-lg-row-fluid">
-                <!--begin::Content-->
-                <div class="d-flex flex-column flex-center pb-0 pb-lg-10 p-10 w-100">
-                    <!--begin::Image-->
-                    <img class="theme-light-show mx-auto mw-100 w-150px w-lg-300px mb-10 mb-lg-20"
-                        src="{{ asset('assets/media/logos/' . $siteLogo) }}" alt="" />
 
-                    <img class="theme-dark-show mx-auto mw-100 w-150px w-lg-300px mb-10 mb-lg-20"
-                        src="{{ asset('assets/media/logos/' . $siteLogo) }}" alt="" />
-
-                    <!--end::Image-->
-                    <!--begin::Title-->
-                    <h1 class="text-gray-800 fs-2qx fw-bold text-center mb-7">
-                        {{ $siteName }}
-                    </h1>
-                    <div class="text-gray-600 fs-base text-center fw-semibold">
-                        Manage your operations efficiently with our modern admin dashboard.
-                    </div>
-                    <!--end::Text-->
-                </div>
-                <!--end::Content-->
+            <div class="jg-auth__aside">
+                <img class="jg-auth__logo-watermark" src="{{ asset('assets/media/logos/' . $siteLogo) }}" alt="" />
+                <h2>Absensi Wajah<br>Dinas Pendidikan Sumatera Utara</h2>
+                <p>
+                    Satu pintu untuk kehadiran siswa, perangkat tablet sekolah, dan
+                    laporan harian se-provinsi.
+                </p>
+                <ul class="jg-auth__points">
+                    <li>
+                        <span class="jg-dot">1</span>
+                        <span>Kehadiran dipindai di tablet sekolah, tercatat seketika di provinsi.</span>
+                    </li>
+                    <li>
+                        <span class="jg-dot">2</span>
+                        <span>Wali murid menerima pemberitahuan pada hari yang sama.</span>
+                    </li>
+                    <li>
+                        <span class="jg-dot">3</span>
+                        <span>Rekap per kelas, per siswa, dan per sekolah siap diunduh.</span>
+                    </li>
+                </ul>
             </div>
-            <!--end::Aside-->
         </div>
         <!--end::Authentication - Sign-in-->
     </div>

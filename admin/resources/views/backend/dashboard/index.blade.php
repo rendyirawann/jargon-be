@@ -39,25 +39,27 @@
     {{-- ==================== Kartu ringkasan absensi ==================== --}}
     <div class="row g-5 mb-5">
         @php
+            // Elemen ke-5 = slug status; menentukan warna garis tepi kartu
+            // (lihat .jg-stat--* di public/assets/css/jargon-theme.css).
             $cards = [
-                ['Hadir', $summary['hadir'], 'success', 'ki-check-circle'],
-                ['Terlambat', $summary['terlambat'], 'warning', 'ki-time'],
-                ['Izin / Sakit', $summary['izin'] + $summary['sakit'], 'info', 'ki-information'],
-                ['Tanpa Keterangan', $summary['alfa'], 'danger', 'ki-cross-circle'],
-                ['Belum Absen', $summary['belum_absen'], 'secondary', 'ki-questionnaire-tablet'],
+                ['Hadir', $summary['hadir'], 'success', 'ki-check-circle', 'hadir'],
+                ['Terlambat', $summary['terlambat'], 'warning', 'ki-time', 'terlambat'],
+                ['Izin / Sakit', $summary['izin'] + $summary['sakit'], 'info', 'ki-information', 'izin'],
+                ['Tanpa Keterangan', $summary['alfa'], 'danger', 'ki-cross-circle', 'alfa'],
+                ['Belum Absen', $summary['belum_absen'], 'secondary', 'ki-questionnaire-tablet', 'belum'],
             ];
         @endphp
-        @foreach ($cards as [$label, $value, $color, $icon])
+        @foreach ($cards as [$label, $value, $color, $icon, $status])
             <div class="col-6 col-md-4 col-xl">
-                <div class="card card-flush h-100 border border-gray-200">
+                <div class="card card-flush h-100 jg-stat jg-stat--{{ $status }}">
                     <div class="card-body p-5">
                         <div class="d-flex align-items-center justify-content-between mb-2">
-                            <span class="text-muted fs-8 text-uppercase fw-semibold">{{ $label }}</span>
-                            <i class="ki-duotone {{ $icon }} fs-2 text-{{ $color }}">
+                            <span class="jg-stat__label">{{ $label }}</span>
+                            <i class="ki-duotone {{ $icon }} fs-2 jg-stat__icon">
                                 <span class="path1"></span><span class="path2"></span>
                             </i>
                         </div>
-                        <div class="fs-2hx fw-bold text-gray-900">{{ number_format($value) }}</div>
+                        <div class="jg-stat__value">{{ number_format($value) }}</div>
                     </div>
                 </div>
             </div>
@@ -89,10 +91,18 @@
                         <span class="fs-2hx fw-bold text-gray-900">{{ $biometric['percent'] }}%</span>
                         <span class="text-muted fs-8">{{ number_format($biometric['enrolled']) }} / {{ number_format($biometric['total']) }}</span>
                     </div>
-                    <div class="progress h-8px bg-light-primary mb-3">
-                        <div class="progress-bar bg-primary" style="width: {{ min(100, $biometric['percent']) }}%"></div>
+                    <div class="jg-progress mb-3">
+                        <div class="jg-progress__bar" style="width: {{ min(100, $biometric['percent']) }}%"></div>
                     </div>
-                    @if ($biometric['not_enrolled'] > 0)
+                    @if ($biometric['total'] === 0)
+                        {{-- Tanpa cabang ini, 0 dari 0 siswa tampil sebagai "Lengkap" —
+                             menyesatkan, karena artinya belum ada data siswa sama sekali. --}}
+                        <button type="button" class="btn btn-sm btn-light w-100 py-2"
+                                data-jg-notify="Belum ada siswa aktif pada lingkup ini, jadi cakupan data wajah belum bisa dihitung. Tambahkan data siswa lebih dulu di menu Data Master &rsaquo; Siswa."
+                                data-jg-notify-type="info">
+                            Belum ada data siswa
+                        </button>
+                    @elseif ($biometric['not_enrolled'] > 0)
                         <a href="{{ route('biometric.index', ['school_id' => $schoolId, 'filter' => 'belum']) }}"
                            class="btn btn-sm btn-light-danger w-100 py-2">
                             {{ number_format($biometric['not_enrolled']) }} siswa belum terdaftar
@@ -103,7 +113,13 @@
                             {{ number_format($biometric['under_sampled']) }} sampel belum lengkap
                         </a>
                     @else
-                        <span class="badge badge-light-success w-100 py-2 justify-content-center">Lengkap</span>
+                        {{-- Tampak seperti tombol, dulu tidak bisa diklik. Sekarang
+                             menjelaskan artinya saat ditekan. --}}
+                        <button type="button" class="btn btn-sm btn-light-success w-100 py-2"
+                                data-jg-notify="Seluruh {{ number_format($biometric['total']) }} siswa aktif sudah punya data wajah dengan jumlah sampel yang cukup. Tidak ada yang perlu didaftarkan."
+                                data-jg-notify-type="success">
+                            Lengkap
+                        </button>
                     @endif
                 </div>
             </div>
@@ -140,7 +156,9 @@
                     </div>
                     @can('view_device')
                         <a href="{{ route('devices.index', ['school_id' => $schoolId]) }}"
-                           class="btn btn-sm btn-light w-100 py-2 mt-3">Kelola perangkat</a>
+                           class="btn btn-sm btn-light w-100 py-2 mt-3">
+                            {{ $devices['total'] === 0 ? 'Daftarkan perangkat' : 'Kelola perangkat' }}
+                        </a>
                     @endcan
                 </div>
             </div>
