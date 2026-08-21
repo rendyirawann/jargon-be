@@ -13,13 +13,30 @@ use App\Http\Controllers\Auth\SocialLoginController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function () {
-    // --- REGISTER ---
-    // Jika aplikasi perizinan tidak boleh daftar sendiri (hanya admin yg buat user),
-    // Abang bisa matikan (komentar) 2 baris route register di bawah ini.
-    Route::get('/admin/register', [RegisteredUserController::class, 'create'])
-        ->name('register');
-
-    Route::post('register', [RegisteredUserController::class, 'store']);
+    // --- REGISTER: DIMATIKAN 21 Agustus 2026 (pemasangan beoulve-dev) ---
+    //
+    // Alasan: RegisteredUserController::store membuat pengguna TANPA peran lalu
+    // langsung Auth::login. Di sistem absensi dinas, akun hanya boleh dibuat
+    // admin dari dashboard (/admin/users).
+    //
+    // Tidak ada fitur berfungsi yang hilang: viewnya sendiri rusak — memakai
+    // komponen Breeze (<x-input-label> dsb.) yang tidak ada di repo ini dan
+    // berisi sisa view lain (@endpush/@endsection tanpa pembuka), sehingga
+    // GET /admin/register selalu 500. Viewnya dipindahkan ke
+    // /var/www/html/face-recognition/disabled-views/ .
+    //
+    // Catatan: URI POST di bawah ditulis 'register' (tanpa /admin/), jadi dulu
+    // ia berada di /register — bukan di /admin/register seperti GET-nya.
+    //
+    // Untuk mengaktifkan kembali: lepas komentar dua rute di bawah, kembalikan
+    // + perbaiki viewnya, DAN hapus baris
+    // `location = /jargon-be/admin/register { return 404; }`
+    // di /etc/nginx/sites-available/beoulve-dev.conf.
+    //
+    // Route::get('/admin/register', [RegisteredUserController::class, 'create'])
+    //     ->name('register');
+    //
+    // Route::post('register', [RegisteredUserController::class, 'store']);
 
     // --- LOGIN ---
     Route::get('/admin/login', [AuthenticatedSessionController::class, 'create'])

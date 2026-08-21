@@ -30,6 +30,9 @@
     <!--begin::Global Stylesheets Bundle(mandatory for all pages)-->
     <link href="{{ asset('assets/plugins/global/plugins.bundle.css') }}" rel="stylesheet" type="text/css" />
     <link href="{{ asset('assets/css/style.bundle.css') }}" rel="stylesheet" type="text/css" />
+    {{-- Tema Jargon GO — dimuat SETELAH style.bundle.css supaya menimpa Metronic
+         tanpa menyunting berkas vendor. Lihat public/assets/css/jargon-theme.css --}}
+    <link href="{{ asset('assets/css/jargon-theme.css') }}?v={{ filemtime(public_path('assets/css/jargon-theme.css')) }}" rel="stylesheet" type="text/css" />
     <!--end::Global Stylesheets Bundle-->
     <style>
         :root {
@@ -51,25 +54,13 @@
             z-index: 104;
         }
         .sidebar-overlay.active { display: block; }
-        /* Custom sidebar styles for Demo 11 */
-        #kt_app_sidebar {
-            position: fixed;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 280px;
-            z-index: 105;
-            background: #fff;
-            border-right: 1px solid var(--bs-gray-200);
-            transform: translateX(-100%);
-            transition: transform 0.3s ease;
-            overflow-y: auto;
-        }
-        #kt_app_sidebar.active { transform: translateX(0); }
-        [data-bs-theme="dark"] #kt_app_sidebar {
-            background: #1e1e2d;
-            border-right-color: rgba(255,255,255,0.07);
-        }
+        /* Aturan #kt_app_sidebar dipindahkan ke public/assets/css/jargon-theme.css.
+           Versi lama di sini membuat sidebar `position: fixed` dengan
+           `translateX(-100%)` pada SEMUA lebar layar, sementara tombol
+           pembukanya (#kt_app_sidebar_toggle) ber-kelas d-lg-none — jadi di
+           desktop sidebar tidak pernah bisa muncul sama sekali. Karena blok
+           <style> inline ini berada setelah <link> tema, ia selalu menang;
+           itulah sebabnya aturan sidebar tidak boleh tinggal di sini. */
     </style>
     <script>
         if (window.top != window.self) { window.top.location.replace(window.self.location.href); }
@@ -110,7 +101,7 @@
                 <!--begin::Header-->
                 <div id="kt_header" class="header" data-kt-sticky="true" data-kt-sticky-name="header" data-kt-sticky-offset="{default: '200px', lg: '300px'}">
                     <!--begin::Container (Top Bar)-->
-                    <div class="container-xxl d-flex flex-grow-1 flex-stack">
+                    <div class="container-fluid d-flex flex-grow-1 flex-stack">
                         <!--begin::Header Logo-->
                         <div class="d-flex align-items-center me-5">
                             <!--begin::Sidebar toggle (mobile)-->
@@ -129,26 +120,26 @@
                             </a>
                         </div>
                         <!--end::Header Logo-->
+
+                        {{-- Menu sebaris dengan logo. Metronic memindahkan elemen menu ke sini
+                             lewat data-kt-swapper saat >=lg (lihat data-kt-swapper-parent di
+                             menu.blade.php); di layar kecil ia dipindah ke #kt_body sbg drawer. --}}
+                        <div class="d-none d-lg-flex align-items-center flex-grow-1" id="kt_header_menu_wrapper">
+                            @include('backend.layout.menu')
+                        </div>
+
                         <!--begin::Topbar-->
                         @include('backend.layout.navbar')
                         <!--end::Topbar-->
                     </div>
                     <!--end::Container-->
-                    <!--begin::Separator-->
-                    <div class="separator"></div>
-                    <!--end::Separator-->
-                    <!--begin::Container (Menu Bar)-->
-                    <div class="header-menu-container container-xxl d-flex flex-stack h-lg-75px w-100" id="kt_header_nav">
-                        <!--begin::Menu wrapper-->
-                        @include('backend.layout.menu')
-                        <!--end::Menu wrapper-->
-                    </div>
-                    <!--end::Container-->
+                        {{-- Baris menu terpisah (#kt_header_nav) dihapus: menunya kini sebaris
+                             dengan logo di atas, sesuai permintaan. --}}
                 </div>
                 <!--end::Header-->
 
                 <!--begin::Container-->
-                <div id="kt_content_container" class="d-flex flex-column-fluid align-items-start container-xxl">
+                <div id="kt_content_container" class="d-flex flex-column-fluid align-items-start container-fluid">
                     <!--begin::Sidebar (Custom for Demo 11)-->
                     @include('backend.layout.sidebar')
                     <!--end::Sidebar-->
@@ -186,7 +177,6 @@
     <script src="{{ asset('assets/js/custom/widgets.js') }}"></script>
     <script src="{{ asset('assets/js/custom/apps/chat/chat.js') }}"></script>
     <script src="{{ asset('assets/js/custom/utilities/modals/create-campaign.js') }}"></script>
-    <script src="{{ asset('assets/js/custom/utilities/modals/users-search.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // --- Sidebar Toggle ---
@@ -219,41 +209,25 @@
             @if(session('warning')) toastr.warning("{{ session('warning') }}"); @endif
             @if(session('info')) toastr.info("{{ session('info') }}"); @endif
 
-            // --- Quick Search ---
-            const searchPages = [
-                { title: 'Dashboard', url: "{{ route('dashboard') }}", icon: 'ki-element-11', desc: 'Main dashboard overview' },
-                { title: 'Settings', url: "{{ route('settings.index') }}", icon: 'ki-setting-2', desc: 'Application configuration' }
-            ];
-            const searchInput = document.querySelector('[data-kt-search-element="input"]');
-            const resultsEl = document.querySelector('[data-kt-search-element="results"]');
-            const mainEl = document.querySelector('[data-kt-search-element="main"]');
-            const emptyEl = document.querySelector('[data-kt-search-element="empty"]');
-            const resultsContainer = document.getElementById('kt_header_search_results');
-            if(searchInput) {
-                searchInput.addEventListener('input', function(e) {
-                    const query = e.target.value.toLowerCase();
-                    if(query.length > 1) {
-                        mainEl.classList.add('d-none');
-                        const filtered = searchPages.filter(p => p.title.toLowerCase().includes(query) || p.desc.toLowerCase().includes(query));
-                        if(filtered.length > 0) {
-                            emptyEl.classList.add('d-none');
-                            resultsEl.classList.remove('d-none');
-                            let html = '';
-                            filtered.forEach(p => {
-                                html += `<a href="${p.url}" class="d-flex text-gray-900 text-hover-primary align-items-center mb-5"><div class="symbol symbol-40px me-4"><span class="symbol-label bg-light"><i class="ki-duotone ${p.icon} fs-2 text-primary"><span class="path1"></span><span class="path2"></span><span class="path3"></span><span class="path4"></span></i></span></div><div class="d-flex flex-column"><span class="fs-6 fw-bold">${p.title}</span><span class="fs-7 fw-semibold text-muted">${p.desc}</span></div></a>`;
-                            });
-                            resultsContainer.innerHTML = html;
-                        } else {
-                            resultsEl.classList.add('d-none');
-                            emptyEl.classList.remove('d-none');
-                        }
-                    } else {
-                        mainEl.classList.remove('d-none');
-                        resultsEl.classList.add('d-none');
-                        emptyEl.classList.add('d-none');
-                    }
-                });
-            }
+            // --- Notifikasi untuk elemen yang tidak menavigasi ---
+            // Beberapa elemen di dashboard tampak seperti tombol tetapi hanya
+            // menyatakan keadaan (mis. "Lengkap"). Daripada diam saat diklik,
+            // elemen ber-atribut data-jg-notify menjelaskan dirinya. Memakai
+            // toastr yang sudah dimuat tema — tanpa pustaka tambahan.
+            document.addEventListener('click', function (e) {
+                const el = e.target.closest('[data-jg-notify]');
+                if (! el) return;
+                e.preventDefault();
+                const pesan = el.getAttribute('data-jg-notify');
+                const jenis = el.getAttribute('data-jg-notify-type') || 'info';
+                if (window.toastr && typeof toastr[jenis] === 'function') {
+                    toastr[jenis](pesan);
+                } else if (window.Swal) {
+                    Swal.fire({ text: pesan.replace(/&rsaquo;/g, '>'), icon: jenis, confirmButtonText: 'Oke' });
+                } else {
+                    alert(pesan);
+                }
+            });
 
             // --- Force Logout Listener ---
             @auth

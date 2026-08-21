@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Jargon GO">
+  <!-- Lencana absensi wajah: bingkai pemindai + siluet kepala.
+       Warna mengikuti tema dashboard: navy #1E3A8A -> teal #0F766E. -->
+  <defs>
+    <linearGradient id="jgGrad" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1E3A8A"/>
+      <stop offset="1" stop-color="#0F766E"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#jgGrad)"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.92">
+    <!-- bingkai pemindai -->
+    <path d="M16 24v-4a4 4 0 0 1 4-4h4"/>
+    <path d="M48 24v-4a4 4 0 0 0-4-4h-4"/>
+    <path d="M16 40v4a4 4 0 0 0 4 4h4"/>
+    <path d="M48 40v4a4 4 0 0 1-4 4h-4"/>
+  </g>
+  <!-- kepala + bahu -->
+  <circle cx="32" cy="29" r="6.4" fill="#FFFFFF"/>
+  <path d="M21.5 45c1.6-5.2 5.7-8.2 10.5-8.2S40.9 39.8 42.5 45z" fill="#FFFFFF"/>
+</svg>
