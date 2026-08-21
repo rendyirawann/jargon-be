@@ -198,6 +198,8 @@ Route::middleware(['auth', 'forbid-banned-user'])->group(function () {
     Route::get('/admin/attendances/recap', [AttendanceController::class, 'recap'])->name('attendances.recap');
     Route::post('/admin/attendances/manual', [AttendanceController::class, 'manual'])->name('attendances.manual');
     Route::post('/admin/attendances/bulk', [AttendanceController::class, 'bulk'])->name('attendances.bulk');
+    // Hanya superadmin; lihat AttendanceController::destroy.
+    Route::delete('/admin/attendances/{attendance}', [AttendanceController::class, 'destroy'])->name('attendances.destroy');
     Route::get('/admin/attendance-rules', [AttendanceController::class, 'rules'])->name('attendance-rules.index');
     Route::post('/admin/attendance-rules', [AttendanceController::class, 'storeRule'])->name('attendance-rules.store');
 

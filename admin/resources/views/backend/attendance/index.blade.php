@@ -189,6 +189,7 @@
 @endsection
 
 @push('scripts')
+    @include('backend.attendance._hapus-script')
     <script>
         $(function () {
             $('#tblAttendance').DataTable({

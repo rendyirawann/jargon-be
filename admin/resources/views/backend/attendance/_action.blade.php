@@ -13,6 +13,18 @@
         </a>
     @endcan
 
+    @can('delete_attendance')
+        <button type="button" class="btn btn-icon btn-sm btn-light-danger"
+                data-hapus-absensi
+                data-id="{{ $row->id }}"
+                data-tanggal="{{ $date }}"
+                data-nama="{{ $row->student_name }}"
+                data-label="{{ \Illuminate\Support\Carbon::parse($row->attendance_date)->translatedFormat('d M Y') }}"
+                title="Hapus absensi ini">
+            <i class="ki-outline ki-trash fs-5"></i>
+        </button>
+    @endcan
+
     @can('override_attendance')
         <button type="button" class="btn btn-icon btn-sm btn-light-warning"
                 data-bs-toggle="modal" data-bs-target="#modalManual"

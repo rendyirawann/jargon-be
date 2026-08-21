@@ -72,7 +72,10 @@
                                     <th>Masuk</th>
                                     <th>Pulang</th>
                                     <th>Status</th>
-                                    <th class="pe-5">Catatan</th>
+                                    <th>Catatan</th>
+                                    @can('delete_attendance')
+                                        <th class="pe-5 text-end">Hapus</th>
+                                    @endcan
                                 </tr>
                             </thead>
                             <tbody>
@@ -87,10 +90,24 @@
                                                 <span class="text-muted fs-9 d-block">+{{ $a->late_minutes }} menit</span>
                                             @endif
                                         </td>
-                                        <td class="pe-5 fs-8 text-muted">{{ $a->notes ?? '-' }}</td>
+                                        <td class="fs-8 text-muted">{{ $a->notes ?? '-' }}</td>
+                                        @can('delete_attendance')
+                                            <td class="pe-5 text-end">
+                                                <button type="button"
+                                                        class="btn btn-icon btn-sm btn-light-danger"
+                                                        data-hapus-absensi
+                                                        data-id="{{ $a->id }}"
+                                                        data-tanggal="{{ $a->attendance_date->toDateString() }}"
+                                                        data-nama="{{ $student->full_name }}"
+                                                        data-label="{{ $a->attendance_date->translatedFormat('d M Y') }}"
+                                                        title="Hapus absensi ini">
+                                                    <i class="ki-outline ki-trash fs-5"></i>
+                                                </button>
+                                            </td>
+                                        @endcan
                                     </tr>
                                 @empty
-                                    <tr><td colspan="5" class="text-center text-muted py-10 fs-7">Belum ada riwayat absensi.</td></tr>
+                                    <tr><td colspan="{{ auth()->user()->can('delete_attendance') ? 6 : 5 }}" class="text-center text-muted py-10 fs-7">Belum ada riwayat absensi.</td></tr>
                                 @endforelse
                             </tbody>
                         </table>
@@ -239,3 +256,7 @@
         </div>
     </div>
 @endsection
+
+@push('scripts')
+    @include('backend.attendance._hapus-script')
+@endpush

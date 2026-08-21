@@ -9,12 +9,14 @@ use App\Models\Classroom;
 use App\Models\Student;
 use App\Services\AbsensiApi;
 use App\Support\Tenant;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 use Yajra\DataTables\Facades\DataTables;
 
@@ -35,6 +37,7 @@ class AttendanceController extends Controller implements HasMiddleware
             'auth',
             new Middleware('can:view_attendance', only: ['index', 'data', 'live', 'byClassroom']),
             new Middleware('can:override_attendance', only: ['manual', 'bulk']),
+            new Middleware('can:delete_attendance', only: ['destroy']),
             new Middleware('can:view_report', only: ['recap']),
             new Middleware('can:manage_attendance_rule', only: ['rules', 'storeRule']),
         ];
@@ -319,6 +322,78 @@ class AttendanceController extends Controller implements HasMiddleware
         }
 
         return back()->with('success', $message);
+    }
+
+    /**
+     * Hapus satu baris absensi.
+     *
+     * Tiga hal yang disengaja di sini.
+     *
+     * Pertama, hanya superadmin. Izin 'delete_attendance' tidak dimiliki peran
+     * mana pun di basis data, jadi satu-satunya yang lolos adalah superadmin
+     * lewat Gate::before di AppServiceProvider. 'override_attendance' TIDAK
+     * dipakai: izin itu juga dipegang guru dan staff_tu, dan mengoreksi status
+     * kehadiran adalah satu hal, menghapus jejaknya hal lain.
+     *
+     * Kedua, penulisan langsung ke basis data — menyimpang dari aturan di
+     * kepala kelas ini bahwa perubahan absensi lewat API Rust. Aturan itu ada
+     * karena perhitungan menit keterlambatan, pemilihan template notifikasi,
+     * dan penulisan outbox tinggal di sana; tidak satu pun berlaku saat
+     * menghapus, dan API Rust memang tidak punya endpoint hapus. Baris
+     * `attendance_events` sengaja DIBIARKAN: itu catatan mesin tentang apa yang
+     * pernah dipindai, dan justru itu yang membuat penghapusan ini tetap bisa
+     * dilacak.
+     *
+     * Ketiga, tanggal wajib dikirim pemanggil. Itu bukan formalitas:
+     * `attendances` dipartisi RANGE per bulan pada attendance_date, jadi tanpa
+     * filter tanggal satu DELETE akan menyentuh seluruh partisi riwayat
+     * provinsi.
+     */
+    public function destroy(Request $request, string $attendance): JsonResponse|RedirectResponse
+    {
+        $data = $request->validate([
+            'attendance_date' => ['required', 'date_format:Y-m-d'],
+        ]);
+
+        $baris = Attendance::query()
+            ->where('attendance_date', $data['attendance_date'])
+            ->whereKey($attendance)
+            ->first();
+
+        if (! $baris) {
+            $pesan = 'Data absensi itu tidak ditemukan; mungkin sudah dihapus.';
+
+            return $request->expectsJson()
+                ? response()->json(['message' => $pesan], 404)
+                : back()->with('error', $pesan);
+        }
+
+        // Dicatat SEBELUM barisnya hilang. Ini satu-satunya jejak di sisi
+        // dashboard tentang siapa yang menghapus apa; tanpa ini penghapusan
+        // hanya terlihat sebagai data yang tiba-tiba tidak ada.
+        Log::warning('Absensi dihapus dari dashboard', [
+            'attendance_id' => $baris->id,
+            'attendance_date' => $data['attendance_date'],
+            'student_id' => $baris->student_id,
+            'student_name' => $baris->student_name,
+            'status' => $baris->status,
+            'check_in_at' => (string) $baris->check_in_at,
+            'check_out_at' => (string) $baris->check_out_at,
+            'oleh_user_id' => $request->user()?->id,
+            'oleh_username' => $request->user()?->username,
+        ]);
+
+        Attendance::query()
+            ->where('attendance_date', $data['attendance_date'])
+            ->whereKey($attendance)
+            ->delete();
+
+        $pesan = 'Absensi '.$baris->student_name.' tanggal '
+            .Carbon::parse($data['attendance_date'])->translatedFormat('d M Y').' dihapus.';
+
+        return $request->expectsJson()
+            ? response()->json(['message' => $pesan])
+            : back()->with('success', $pesan);
     }
 
     // =================================================================
