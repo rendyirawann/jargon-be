@@ -48,7 +48,10 @@ class FaceEnrollmentController extends Controller implements HasMiddleware
             // itu kewenangan yang sebaiknya bisa diberikan terpisah — guru
             // boleh mendaftarkan wajah tanpa boleh menjalankan gerbang.
             new Middleware('can:operate_face_kiosk', only: ['scan']),
-            new Middleware('can:delete_face_enrollment', only: ['destroy']),
+            new Middleware('can:delete_face_enrollment', only: ['destroy', 'reset']),
+            // 'reset' menghapus SELURUH sampel satu siswa, jadi izinnya sama
+            // dengan hapus satuan — bukan izin pendaftaran. Saat ini dimiliki
+            // peran superadmin dan staff_tu.
         ];
     }
 
@@ -239,7 +242,148 @@ class FaceEnrollmentController extends Controller implements HasMiddleware
         ]);
     }
 
-    public function destroy(FaceEnrollment $enrollment): RedirectResponse
+    /**
+     * Hapus SELURUH sampel wajah satu siswa, lalu pendaftaran dimulai dari
+     * pose pertama lagi.
+     *
+     * Dipakai tombol "Ulangi dari awal". Penghapusan lewat API supaya gambar di
+     * storage, vektor di pgvector, ringkasan di tabel students, dan cache index
+     * tablet ikut bersih — sama seperti destroy() untuk satu sampel.
+     */
+    public function reset(Request $request, Student $student): RedirectResponse|JsonResponse
+    {
+        Tenant::authorizeSchool($student->school_id);
+
+        $api = AbsensiApi::make();
+        $token = AbsensiApi::tokenFromSession();
+        $hapus = 0;
+        $gagal = [];
+
+        foreach ($student->faceEnrollments()->get() as $sampel) {
+            $r = $api->deleteFaceSample($token, $sampel->id);
+            if ($r['success']) {
+                $hapus++;
+            } else {
+                $gagal[] = $r['message'];
+            }
+        }
+
+        $pesan = $gagal === []
+            ? "{$hapus} sampel dihapus. Pendaftaran dimulai dari pose pertama."
+            : "{$hapus} sampel dihapus, ".count($gagal).' gagal: '.$gagal[0];
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => $gagal === [],
+                'message' => $pesan,
+                'deleted' => $hapus,
+            ], $gagal === [] ? 200 : 422);
+        }
+
+        return $gagal === []
+            ? redirect()->route('biometric.capture', $student)->with('success', $pesan)
+            : back()->withErrors(['sample' => $pesan]);
+    }
+
+    /**
+     * Simpan SEMUA pose sekaligus — semua berhasil, atau tidak ada yang tersimpan.
+     *
+     * Halaman pengambilan menahan sampel di browser sampai ketiga pose lengkap,
+     * lalu mengirimnya sekali lewat sini. Alasannya: operator yang berhenti di
+     * tengah tidak boleh meninggalkan wajah setengah terdaftar — data seperti itu
+     * tampak "sudah ada" di dashboard tetapi tidak cukup untuk mengenali siapa
+     * pun, dan tidak ada yang memberi tahu bahwa ia belum lengkap.
+     *
+     * Bila satu pose gagal setelah beberapa berhasil, yang sudah masuk DIHAPUS
+     * kembali. API tidak punya transaksi lintas request, jadi pembatalan itu
+     * dilakukan di sini secara eksplisit.
+     */
+    public function storeBatch(Request $request, Student $student): JsonResponse
+    {
+        Tenant::authorizeSchool($student->school_id);
+
+        $data = $request->validate([
+            'model_version' => ['required', 'string', 'max:40'],
+            'samples' => ['required', 'array', 'size:3'],
+            'samples.*.pose' => ['required', 'string', 'in:frontal,right,left'],
+            'samples.*.image_base64' => ['required', 'string'],
+            'samples.*.embedding' => ['required', 'array'],
+            'samples.*.embedding.*' => ['numeric'],
+        ], [], [
+            'samples' => 'kumpulan sampel',
+        ]);
+
+        $expectedDim = (int) config('services.absensi_api.embedding_dim');
+        foreach ($data['samples'] as $i => $s) {
+            if (count($s['embedding']) !== $expectedDim) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Dimensi embedding pose {$s['pose']} harus {$expectedDim}, diterima "
+                        .count($s['embedding']).'. Muat ulang halaman agar model terbaru terpakai.',
+                ], 422);
+            }
+        }
+
+        $api = AbsensiApi::make();
+        $token = AbsensiApi::tokenFromSession();
+        $terpasang = [];
+        $count = 0;
+
+        // Id sampel LAMA dicatat lebih dulu: sesi ini menimpa sampel lama, tetapi
+        // penghapusannya dilakukan SETELAH ketiga pose baru berhasil masuk. Urutan
+        // itu penting — kalau dihapus lebih dulu lalu penyimpanan gagal, siswa
+        // kehilangan data lamanya dan tidak mendapat yang baru.
+        $idLama = $student->faceEnrollments()->pluck('id')->all();
+
+        foreach ($data['samples'] as $s) {
+            $result = $api->enrollFace(
+                $token,
+                $student->id,
+                $s['image_base64'],
+                self::urutkanEmbedding($s['embedding']),
+                $data['model_version'],
+                $s['pose'],
+            );
+
+            if (! $result['success']) {
+                // Batalkan yang sudah masuk supaya tidak ada sisa separuh jalan.
+                foreach ($terpasang as $id) {
+                    $api->deleteFaceSample($token, $id);
+                }
+
+                return response()->json([
+                    'success' => false,
+                    'message' => "Pose {$s['pose']} gagal disimpan: ".$result['message']
+                        .' Tidak ada sampel yang tersimpan.',
+                    'errors' => $result['errors'] ?: [],
+                ], 422);
+            }
+
+            $payload = $result['data'] ?? [];
+            $count = $payload['sample_count'] ?? $count;
+            if (! empty($payload['id'])) {
+                $terpasang[] = $payload['id'];
+            }
+        }
+
+        // Ketiga pose baru sudah aman: sekarang sampel lama boleh dibuang.
+        $ditimpa = 0;
+        foreach ($idLama as $id) {
+            if ($api->deleteFaceSample($token, $id)['success']) {
+                $ditimpa++;
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $ditimpa > 0
+                ? "Ketiga pose tersimpan; {$ditimpa} sampel lama ditimpa."
+                : 'Ketiga pose tersimpan.',
+            'sample_count' => max(0, $count - $ditimpa),
+        ]);
+    }
+
+    public function destroy(Request $request, FaceEnrollment $enrollment): RedirectResponse|JsonResponse
     {
         Tenant::authorizeSchool($enrollment->school_id);
 
@@ -249,6 +393,14 @@ class FaceEnrollmentController extends Controller implements HasMiddleware
             AbsensiApi::tokenFromSession(),
             $enrollment->id
         );
+
+        // Halaman pengambilan menghapus lewat AJAX; galat/berhasil harus JSON.
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => (bool) $result['success'],
+                'message' => $result['success'] ? 'Sampel wajah dihapus.' : $result['message'],
+            ], $result['success'] ? 200 : 422);
+        }
 
         return $result['success']
             ? back()->with('success', 'Sampel wajah dihapus.')

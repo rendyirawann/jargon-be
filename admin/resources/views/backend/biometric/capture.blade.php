@@ -15,9 +15,24 @@
         'right'   => ['label' => 'Menoleh ke kanan',  'petunjuk' => 'Putar kepala ke KANAN Anda, tahan.'],
         'left'    => ['label' => 'Menoleh ke kiri',   'petunjuk' => 'Putar kepala ke KIRI Anda, tahan.'],
     ];
-    $sudah = $samples->pluck('pose')->unique()->all();
-    $berikut = collect(array_keys($urutan))->first(fn ($p) => ! in_array($p, $sudah, true));
-    $lengkap = $berikut === null;
+    $semuaPose = array_keys($urutan);
+    $poseTersimpan = $samples->pluck('pose')->unique()->all();
+    $lengkap = count(array_intersect($semuaPose, $poseTersimpan)) === count($semuaPose);
+
+    /*
+     * Satu sesi pendaftaran selalu utuh tiga pose, dan menimpa yang lama.
+     *
+     * Versi sebelumnya MELANJUTKAN dari pose yang belum ada, sehingga sampel
+     * separuh jalan ikut terpakai. Itu bertabrakan dengan aturan "belum lengkap
+     * berarti tidak ada yang tersimpan": sisa satu-dua pose dari percobaan yang
+     * ditinggalkan bukan bahan yang layak dipakai melanjutkan, karena bisa
+     * berasal dari pencahayaan, jarak, bahkan orang yang berbeda.
+     *
+     * Jadi: bila belum lengkap, urutan selalu dimulai dari pose pertama dan
+     * sampel lama ditimpa saat sesi ini selesai (lihat storeBatch).
+     */
+    $sudah = $lengkap ? $poseTersimpan : [];
+    $berikut = $lengkap ? null : $semuaPose[0];
 @endphp
 
 @section('content')
@@ -78,15 +93,15 @@
                         $selesai = in_array($pose, $sudah, true);
                         $aktif = $pose === $berikut;
                     @endphp
-                    <div class="flex-grow-1 d-flex align-items-center gap-3 rounded p-3
+                    <div data-pose="{{ $pose }}" class="flex-grow-1 d-flex align-items-center gap-3 rounded p-3
                                 {{ $selesai ? 'bg-light-success' : ($aktif ? 'bg-light-primary' : 'bg-light') }}">
-                        <span class="fs-2">{!! $selesai ? '&#9989;' : ($aktif ? '&#128248;' : '&#9675;') !!}</span>
+                        <span class="fs-2" data-ikon>{!! $selesai ? '&#9989;' : ($aktif ? '&#128248;' : '&#9675;') !!}</span>
                         <div>
                             <span class="fw-bold fs-7 d-block
                                 {{ $selesai ? 'text-success' : ($aktif ? 'text-primary' : 'text-muted') }}">
                                 {{ $loop->iteration }}. {{ $info['label'] }}
                             </span>
-                            <span class="fs-9 text-muted">
+                            <span class="fs-9 text-muted" data-status>
                                 {{ $selesai ? 'tersimpan' : ($aktif ? $info['petunjuk'] : 'menunggu') }}
                             </span>
                         </div>
@@ -179,8 +194,37 @@
                                 Ambil sekarang
                             </button>
                             <button type="button" class="btn btn-light" id="btnRetry">Ulangi kamera</button>
+                            @can('delete_face_enrollment')
+                            <button type="button" class="btn btn-light-danger" id="btnReset"
+                                    data-url="{{ route('biometric.reset', $student) }}">
+                                Ulangi dari awal
+                            </button>
+                            @endcan
                         </div>
                     </form>
+
+                    {{-- Ditampilkan JS begitu ketiga pose tersimpan. Kamera dimatikan di
+                         titik itu: menangkap terus setelah lengkap hanya menumpuk sampel
+                         pose yang sama (pernah terjadi: 17 sampel frontal berurutan). --}}
+                    @if (! $lengkap && $samples->isNotEmpty())
+                        <div class="alert alert-warning d-flex align-items-center gap-3 mt-4">
+                            <span class="fs-2">&#9888;</span>
+                            <div>
+                                <span class="fw-bold d-block">Ada {{ $samples->count() }} sampel lama yang belum lengkap.</span>
+                                <span class="fs-8">Pendaftaran ini dimulai dari pose pertama dan akan MENIMPA sampel lama itu setelah ketiga pose selesai.</span>
+                            </div>
+                        </div>
+                    @endif
+
+                    <div id="kotakSelesai" class="alert alert-success d-flex flex-wrap align-items-center gap-3 mt-4 d-none">
+                        <span class="fs-2">&#9989;</span>
+                        <div class="flex-grow-1">
+                            <span class="fw-bold d-block">Selesai. Ketiga pose sudah tersimpan.</span>
+                            <span class="fs-8">Kamera dimatikan. Siswa ini sudah bisa dipindai di Absensi Wajah.</span>
+                        </div>
+                        <a href="{{ route('biometric.scan') }}" class="btn btn-sm btn-primary">Ke Absensi Wajah</a>
+                        <a href="{{ route('biometric.show', $student) }}" class="btn btn-sm btn-light">Detail siswa</a>
+                    </div>
 
                     <div id="preview" class="mt-4 d-none">
                         <span class="text-muted fs-8 d-block mb-2">Foto yang akan dikirim:</span>
@@ -226,6 +270,13 @@
                             @if ($s->quality_score)
                                 <span class="fs-9 text-muted">mutu {{ number_format($s->quality_score, 2) }}</span>
                             @endif
+                            @can('delete_face_enrollment')
+                                {{-- Hapus satuan langsung dari halaman pengambilan; sebelumnya hanya
+                                     ada di halaman detail siswa. --}}
+                                <button type="button" title="Hapus sampel ini"
+                                        class="btn btn-sm btn-icon btn-light-danger w-25px h-25px ms-2 jg-hapus-sampel"
+                                        data-url="{{ route('biometric.destroy', $s) }}">&times;</button>
+                            @endcan
                         </div>
                     @empty
                         <span class="text-muted fs-8">Belum ada sampel.</span>
@@ -256,9 +307,13 @@
             'use strict';
 
             const MODEL_BASE  = @json(asset('assets/models/face-api'));
+            const MODEL_VERSION = @json($modelVersion);
             const EMB_DIM     = {{ $embeddingDim }};
             let TARGET        = @json($berikut);        // null bila sudah lengkap
             let LENGKAP      = @json($lengkap);
+            const URUTAN    = @json(array_keys($urutan));
+            const SUDAH     = @json(array_values($sudah));
+            const BATCH_URL = @json(route('biometric.store-batch', $student));
 
             const video   = document.getElementById('video');
             const canvas  = document.getElementById('canvas');
@@ -276,9 +331,19 @@
             // Satu frame yang kebetulan salah deteksi tidak boleh cukup —
             // sampel yang tertangkap pada posisi setengah menoleh akan
             // merusak pengenalan siswa itu, bukan hanya sekali.
-            const streak = new JargonFace.Streak(5);
+            const streak = new JargonFace.Streak(3)   // 3 frame (~0,7 detik), dari 5: menahan pose
+                                                       // menoleh lebih lama terasa melelahkan;
 
             let stream = null, timer = null, busy = false, dikirim = false;
+
+            // Bacaan yaw MENTAH terakhir, untuk menyesuaikan titik nol kamera.
+            const yawBuf = [];
+
+            // Sampel DITAHAN di sini sampai ketiga pose lengkap, baru dikirim sekali.
+            // Operator yang berhenti di tengah tidak meninggalkan wajah setengah
+            // terdaftar: data seperti itu tampak sudah ada di dashboard tetapi tidak
+            // cukup untuk mengenali siapa pun.
+            const terkumpul = {};
 
             function setStatus(text, tone) {
                 status.textContent = text;
@@ -288,7 +353,12 @@
             }
 
             function wanted() {
-                return LENGKAP ? poseSel.value : TARGET;
+                if (LENGKAP) return null;
+                for (let i = 0; i < URUTAN.length; i++) {
+                    const x = URUTAN[i];
+                    if (SUDAH.indexOf(x) < 0 && !terkumpul[x]) return x;
+                }
+                return null;
             }
 
             function petunjuk(p) {
@@ -340,6 +410,12 @@
             }
 
             async function startCamera() {
+
+                // Mulai dari nol: bias milik kamera + wajah yang sedang dipakai.
+
+                JargonFace.setYawBias(0);
+
+                yawBuf.length = 0;
                 dikirim = false;
                 try {
                     stream = await navigator.mediaDevices.getUserMedia({
@@ -363,6 +439,12 @@
 
                 btnMan.disabled = false;
                 tunjukArah(wanted(), false);
+
+                if (LENGKAP) {
+                    // Dibuka saat data sudah lengkap: tidak ada yang perlu ditangkap.
+                    selesai();
+                    return;
+                }
                 setStatus('Ikuti petunjuk di layar. Foto diambil otomatis.', 'ok');
                 timer = setInterval(tick, 220);
             }
@@ -375,6 +457,59 @@
                     tampilkanArah(r.pose, r.yaw);
 
                     const target = wanted();
+
+
+                    // Titik nol yang menyesuaikan diri.
+
+                    //
+
+                    // yawOf() mengukur posisi hidung relatif titik tengah mata, jadi kamera
+
+                    // yang tidak tepat di depan wajah atau wajah yang tidak simetris memberi
+
+                    // bias TETAP: "lurus" bisa terbaca 0.20, dan langkah pertama tidak pernah
+
+                    // lolos betapapun lurusnya orangnya. Kalibrasi sekali di awal sempat
+
+                    // dicoba, tetapi memblokir ~3 detik tanpa umpan balik dan terasa macet.
+
+                    //
+
+                    // Sekarang: selama langkah 'menghadap depan' belum cocok TETAPI kepala
+
+                    // terlihat DIAM (sebaran bacaan kecil), titik nol digeser ke nilai tengah
+
+                    // bacaan terakhir. Syarat diam itu yang menjaga kebenaran — tanpa itu,
+
+                    // kepala yang sedang menoleh pun akan dianggap lurus.
+
+                    if (r.yawRaw !== undefined) {
+
+                        yawBuf.push(r.yawRaw);
+
+                        if (yawBuf.length > 10) yawBuf.shift();
+
+                    }
+
+                    if (target === 'frontal' && r.pose !== 'frontal' && yawBuf.length >= 6) {
+
+                        const urut = yawBuf.slice().sort((a, b) => a - b);
+
+                        if (urut[urut.length - 1] - urut[0] < 0.10) {
+
+                            JargonFace.setYawBias(urut[Math.floor(urut.length / 2)]);
+
+                            yawBuf.length = 0;
+
+                            streak.reset();
+
+                            setStatus('Menyesuaikan titik nol kamera — tahan kepala sebentar...', null);
+
+                            return;
+
+                        }
+
+                    }
                     const cocok = r.pose === target;
                     guide.className = 'position-absolute top-50 start-50 translate-middle border border-4 rounded-circle opacity-50 '
                         + (cocok ? 'border-success' : 'border-white');
@@ -423,110 +558,144 @@
                 return canvas;
             }
 
+            /**
+             * Tangkap satu pose — DITAHAN di browser, belum dikirim.
+             *
+             * Pengiriman baru terjadi setelah ketiga pose terkumpul (lihat kirimSemua).
+             * Sebelumnya setiap pose langsung di-POST, sehingga berhenti di tengah
+             * meninggalkan 1-2 sampel yang tidak berguna untuk pengenalan.
+             */
             async function kirim(descriptor, pose) {
                 dikirim = true;
                 if (timer) { clearInterval(timer); timer = null; }
-
+            
                 const jpeg = grabFrame().toDataURL('image/jpeg', 0.92);
-                document.getElementById('imageBase64').value = jpeg.split(',')[1];
-                document.getElementById('embeddingJson').value = '';
-                document.getElementById('poseField').value = pose;
-
-                // Embedding dikirim sebagai array field agar Laravel
-                // memvalidasinya sebagai array, bukan string JSON.
-                document.querySelectorAll('input[name^="embedding["]').forEach((el) => el.remove());
-                descriptor.forEach(function (v, i) {
-                    const input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.name = 'embedding[' + i + ']';
-                    input.value = v;
-                    form.append(input);
-                });
-
+                terkumpul[pose] = {
+                    pose: pose,
+                    image_base64: jpeg.split(',')[1],
+                    embedding: descriptor,
+                };
+                tandaiLangkah(pose);
+            
                 document.getElementById('previewImg').src = jpeg;
                 document.getElementById('preview').classList.remove('d-none');
-
                 hint.textContent = '';
                 tunjukArah(null, false);
-                setStatus('Menyimpan sampel ' + JargonFace.poseLabel(pose) + '...', 'ok');
-                await simpanSampel();
+            
+                const sisa = URUTAN.filter(function (x) {
+                    return SUDAH.indexOf(x) < 0 && !terkumpul[x];
+                });
+            
+                if (sisa.length === 0) {
+                    await kirimSemua();
+                    return;
+                }
+            
+                const jml = Object.keys(terkumpul).length;
+                setStatus('Pose ' + JargonFace.poseLabel(pose) + ' terkumpul (' + jml + '/' + URUTAN.length
+                          + '). Belum dikirim — lanjut: ' + petunjuk(sisa[0]) + '.', 'ok');
+                lanjutkan(true);
             }
-
+            
+            /** Tandai satu kotak langkah sebagai sudah terkumpul (belum tersimpan). */
+            function tandaiLangkah(pose) {
+                const kotak = document.querySelector('[data-pose="' + pose + '"]');
+                if (!kotak) return;
+                kotak.classList.remove('bg-light', 'bg-light-primary');
+                kotak.classList.add('bg-light-success');
+                const ikon = kotak.querySelector('[data-ikon]');
+                if (ikon) ikon.innerHTML = '&#9989;';
+                const st = kotak.querySelector('[data-status]');
+                if (st) st.textContent = 'terkumpul';
+            }
+            
             /**
-             * Simpan sampel lewat AJAX.
-             *
-             * Sebelumnya memakai form.submit(), sehingga setiap sampel memuat
-             * ulang halaman: kamera mati lalu dinyalakan lagi, model face-api
-             * dimuat ulang, dan operator menunggu 2-3 detik di antara pose.
-             * Untuk tiga pose per siswa dan ratusan siswa, itu menumpuk.
-             *
-             * Bila fetch gagal (jaringan mati, JS diblokir), jatuh ke
-             * form.submit() seperti semula — hidden input embedding masih ada
-             * di form, jadi jalur lama tetap utuh.
+             * Kirim ketiga pose sekaligus. Semua berhasil, atau tidak ada yang tersimpan:
+             * pembatalan bila satu pose gagal dilakukan di sisi server (storeBatch).
              */
-            async function simpanSampel() {
+            async function kirimSemua() {
+                setStatus('Menyimpan ketiga pose...', 'ok');
+                const isi = URUTAN.map(function (x) { return terkumpul[x]; }).filter(Boolean);
                 try {
-                    const res = await fetch(form.action, {
+                    const res = await fetch(BATCH_URL, {
                         method: 'POST',
-                        body: new FormData(form),
-                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRF-TOKEN': document.querySelector('input[name=_token]').value,
+                        },
                         credentials: 'same-origin',
+                        body: JSON.stringify({ model_version: MODEL_VERSION, samples: isi }),
                     });
-                    const data = await res.json().catch(() => ({}));
-
+                    const data = await res.json().catch(function () { return {}; });
                     if (!res.ok) {
                         const pesan = data.message
-                            || (data.errors ? Object.values(data.errors).flat().join(' ')
-                                            : 'Gagal menyimpan sampel (HTTP ' + res.status + ').');
+                            || (data.errors ? Object.values(data.errors).flat().join(' ') : 'HTTP ' + res.status);
                         setStatus('Gagal: ' + pesan, 'error');
-                        lanjutkan(false);
+                        // Sampel tetap ditahan supaya bisa dicoba kirim ulang tanpa mengambil
+                        // ulang ketiga pose.
+                        dikirim = false;
+                        btnMan.disabled = false;
+                        if (!timer) timer = setInterval(tick, 220);
                         return;
                     }
-
-                    const badge = document.getElementById('badgeSampel');
-                    if (badge && data.sample_count !== undefined) {
-                        badge.textContent = data.sample_count + ' sampel';
+                    // Pop-up DITUNGGU sampai ditutup. Versi sebelumnya memanggil toastr lalu
+                    // langsung memuat ulang halaman, sehingga notifikasinya hilang sebelum
+                    // terbaca — operator tidak pernah melihat konfirmasi apa pun.
+                    if (window.Swal) {
+                        await Swal.fire({
+                            title: 'Pendaftaran wajah selesai',
+                            html: (data.message || 'Ketiga pose tersimpan.')
+                                  + '<br><span class="text-muted fs-8">Siswa ini sudah bisa dipindai di Absensi Wajah.</span>',
+                            icon: 'success',
+                            confirmButtonText: 'Selesai',
+                            confirmButtonColor: '#0f766e',
+                            allowOutsideClick: false,
+                            allowEscapeKey: false,
+                        });
+                    } else if (window.toastr) {
+                        toastr.success(data.message || 'Ketiga pose tersimpan.');
                     }
-                    if (window.toastr) {
-                        toastr.success(data.message || 'Sampel tersimpan.');
-                    }
-                    await segarkanPanel();
-                    lanjutkan(true);
+                    // Muat ulang sekali di akhir: daftar sampel dan status lengkap datang
+                    // dari server, jadi tidak perlu ditebak di JS.
+                    location.href = location.pathname;
                 } catch (e) {
-                    form.submit();
+                    setStatus('Gagal mengirim: ' + (e.message || e), 'error');
+                    dikirim = false;
+                    if (!timer) timer = setInterval(tick, 220);
                 }
             }
+            
 
-            /**
-             * Ambil ulang halaman ini lalu tukar dua kartu yang berubah:
-             * penanda langkah dan daftar sampel.
-             *
-             * Sengaja memakai HTML dari server, bukan membangun ulang di JS:
-             * logika "pose mana yang berikutnya" ada di Blade, dan menduplikasinya
-             * di dua tempat adalah cara termudah membuat keduanya menyimpang.
-             * Pose berikutnya dibaca dari data-attribute kartu yang baru.
-             */
-            async function segarkanPanel() {
-                try {
-                    const r = await fetch(location.href, {
-                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                        credentials: 'same-origin',
-                    });
-                    const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
-                    ['kartuLangkah', 'kartuSampel'].forEach(function (id) {
-                        const baru = doc.getElementById(id);
-                        const lama = document.getElementById(id);
-                        if (baru && lama) lama.replaceWith(baru);
-                    });
-                    const k = document.getElementById('kartuLangkah');
-                    if (k) {
-                        TARGET  = k.dataset.target || null;
-                        LENGKAP = k.dataset.lengkap === '1';
-                    }
-                } catch (e) {
-                    /* Panel gagal disegarkan bukan alasan menghentikan kamera. */
-                }
+            /** Berhenti total: kamera dimatikan dan panel Selesai ditampilkan. */
+
+            function selesai() {
+
+                if (timer) { clearInterval(timer); timer = null; }
+
+                if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+
+                dikirim = true;
+
+                busy = false;
+
+                btnMan.disabled = true;
+
+                poseSel.classList.add('d-none');
+
+                tunjukArah(null, false);
+
+                hint.textContent = '';
+
+                setStatus('Selesai. Ketiga pose sudah tersimpan.', 'ok');
+
+                const box = document.getElementById('kotakSelesai');
+
+                if (box) box.classList.remove('d-none');
+
             }
+
 
             /** Siapkan putaran berikutnya tanpa memuat ulang halaman. */
             function lanjutkan(sukses) {
@@ -536,9 +705,8 @@
                 dikirim = false;
 
                 if (LENGKAP) {
-                    poseSel.classList.remove('d-none');
-                    btnMan.disabled = false;
-                    setStatus('Semua pose tersimpan. Pilih pose bila ingin menambah sampel.', 'ok');
+                    selesai();
+                    return;
                 } else if (sukses) {
                     setStatus('Lanjut: ' + petunjuk(wanted()) + '.', 'ok');
                 }
@@ -557,6 +725,168 @@
                 } catch (e) {
                     setStatus('Gagal: ' + (e.message || e), 'error');
                     btnMan.disabled = false;
+                }
+            });
+
+            /**
+
+             * Konfirmasi tindakan yang merusak.
+
+             *
+
+             * Memakai SweetAlert2 yang sudah dimuat tema — confirm() bawaan browser
+
+             * mudah terlewat, dan di sini yang dikonfirmasi adalah penghapusan data
+
+             * biometrik yang tidak bisa dibatalkan. confirm() tetap dipakai sebagai
+
+             * cadangan bila pustakanya tidak ada.
+
+             */
+
+            async function konfirmasi(judul, teks, tombol) {
+
+                if (window.Swal) {
+
+                    const r = await Swal.fire({
+
+                        title: judul,
+
+                        text: teks,
+
+                        icon: 'warning',
+
+                        showCancelButton: true,
+
+                        confirmButtonText: tombol,
+
+                        cancelButtonText: 'Batal',
+
+                        confirmButtonColor: '#dc2626',
+
+                        reverseButtons: true,
+
+                    });
+
+                    return r.isConfirmed === true;
+
+                }
+
+                return confirm(judul + '\n\n' + teks);
+
+            }
+
+
+            const btnResetEl = document.getElementById('btnReset');
+            // Tombol hanya dirender untuk pemilik izin delete_face_enrollment,
+            // jadi ketiadaannya normal - bukan galat.
+            if (btnResetEl) btnResetEl.addEventListener('click', async function (ev) {
+
+                const btn = ev.currentTarget;
+
+                const setuju = await konfirmasi(
+                    'Ulangi dari awal?',
+                    'Semua sampel wajah siswa ini akan DIHAPUS dan pendaftaran dimulai dari pose pertama. Sampel lama ditimpa oleh pendaftaran baru, dan tindakan ini tidak bisa dibatalkan.',
+                    'Ya, hapus & mulai ulang'
+                );
+                if (!setuju) return;
+
+                btn.disabled = true;
+
+                setStatus('Menghapus sampel...', null);
+
+                try {
+
+                    const res = await fetch(btn.dataset.url, {
+
+                        method: 'DELETE',
+
+                        headers: {
+
+                            'Accept': 'application/json',
+
+                            'X-Requested-With': 'XMLHttpRequest',
+
+                            'X-CSRF-TOKEN': document.querySelector('input[name=_token]').value,
+
+                        },
+
+                        credentials: 'same-origin',
+
+                    });
+
+                    const data = await res.json().catch(() => ({}));
+
+                    if (!res.ok) {
+
+                        setStatus('Gagal: ' + (data.message || res.status), 'error');
+
+                        btn.disabled = false;
+
+                        return;
+
+                    }
+
+                    // Muat ulang DI SINI memang yang diinginkan: state pendaftaran
+
+                    // harus benar-benar kembali ke pose pertama.
+
+                    if (window.Swal) {
+                        await Swal.fire({
+                            title: 'Sampel dihapus',
+                            text: data.message || 'Pendaftaran dimulai dari pose pertama.',
+                            icon: 'success',
+                            confirmButtonText: 'Mulai',
+                            confirmButtonColor: '#0f766e',
+                        });
+                    }
+
+                    location.href = location.pathname;
+
+                } catch (e) {
+
+                    setStatus('Gagal menghapus: ' + (e.message || e), 'error');
+
+                    btn.disabled = false;
+
+                }
+
+            });
+
+
+            // Hapus satu sampel. Setelah terhapus halaman dimuat ulang: keadaan
+            // pose berikutnya ditentukan server, dan sampel yang hilang bisa
+            // membuat pendaftaran kembali belum lengkap.
+            document.addEventListener('click', async function (ev) {
+                const b = ev.target.closest('.jg-hapus-sampel');
+                if (!b) return;
+                const yakin = await konfirmasi(
+                    'Hapus sampel ini?',
+                    'Sampel wajah ini dihapus permanen beserta gambarnya. Bila setelah ini pose menjadi belum lengkap, pengambilan dilanjutkan dari pose itu.',
+                    'Ya, hapus'
+                );
+                if (!yakin) return;
+                b.disabled = true;
+                try {
+                    const res = await fetch(b.dataset.url, {
+                        method: 'DELETE',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRF-TOKEN': document.querySelector('input[name=_token]').value,
+                        },
+                        credentials: 'same-origin',
+                    });
+                    if (!res.ok) {
+                        const d = await res.json().catch(() => ({}));
+                        setStatus('Gagal: ' + (d.message || res.status), 'error');
+                        b.disabled = false;
+                        return;
+                    }
+                    location.href = location.pathname;
+                } catch (e) {
+                    setStatus('Gagal menghapus: ' + (e.message || e), 'error');
+                    b.disabled = false;
                 }
             });
 

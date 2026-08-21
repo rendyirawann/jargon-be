@@ -100,14 +100,16 @@
                     <div class="card-body pt-3">
                         <div class="alert alert-light-info py-3 px-4 fs-9 mb-4" id="hint-siswa"></div>
 
-                        <div class="mb-3">
-                            <label class="form-label">Cari siswa (nama atau NISN)</label>
-                            <input type="search" id="cari-siswa" class="form-control form-control-sm"
-                                   placeholder="ketik minimal 3 huruf" autocomplete="off">
-                            <div id="hasil-siswa" class="list-group mt-2"></div>
-                        </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="pilih-siswa">Data siswa</label>
+                                <select id="pilih-siswa" name="student_ids[]" multiple
+                                        class="form-select form-select-sm"
+                                        data-url="{{ route('app-accounts.students') }}"
+                                        data-placeholder="Ketik nama atau NISN (minimal 3 huruf)"></select>
+                                <div class="form-text fs-9">Cari berdasarkan nama atau NISN.</div>
+                            </div>
 
-                        <div id="siswa-terpilih" class="d-flex flex-column gap-2"></div>
+
 
                         <div class="mt-4" id="blok-relasi">
                             <label class="form-label required">Hubungan dengan siswa</label>
@@ -167,11 +169,6 @@
     const blokSekolah = document.getElementById('blok-sekolah');
     const hintSiswa = document.getElementById('hint-siswa');
     const hintSekolah = document.getElementById('hint-sekolah');
-    const terpilih = document.getElementById('siswa-terpilih');
-    const cari = document.getElementById('cari-siswa');
-    const hasil = document.getElementById('hasil-siswa');
-
-    const dipilih = new Map();
 
     function render() {
         const value = role.value;
@@ -202,62 +199,54 @@
             ? 'Petugas pengaduan bercakupan provinsi; biarkan kosong.'
             : 'Wajib diisi untuk guru, staf, dan kepala sekolah.';
 
-        if (!isSiswa && dipilih.size > 1) {
-            return;
-        }
-        if (isSiswa && dipilih.size > 1) {
-            const first = Array.from(dipilih.keys())[0];
-            dipilih.forEach((_, k) => { if (k !== first) dipilih.delete(k); });
-            renderTerpilih();
+        // Ganti peran ke 'siswa' saat sudah memilih beberapa: sisakan satu.
+        if (isSiswa && window.jQuery) {
+            const v = $('#pilih-siswa').val() || [];
+            if (v.length > 1) $('#pilih-siswa').val([v[0]]).trigger('change');
         }
     }
 
-    function renderTerpilih() {
-        terpilih.innerHTML = '';
-        dipilih.forEach((label, id) => {
-            const row = document.createElement('div');
-            row.className = 'd-flex align-items-center justify-content-between border border-gray-200 rounded p-2';
-            row.innerHTML =
-                '<span class="fs-8">' + label + '</span>' +
-                '<input type="hidden" name="student_ids[]" value="' + id + '">';
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'btn btn-sm btn-light-danger';
-            btn.textContent = 'Hapus';
-            btn.onclick = function () { dipilih.delete(id); renderTerpilih(); };
-            row.appendChild(btn);
-            terpilih.appendChild(row);
-        });
-    }
-
-    let timer = null;
-    cari.addEventListener('input', function () {
-        clearTimeout(timer);
-        const term = cari.value.trim();
-        if (term.length < 3) { hasil.innerHTML = ''; return; }
-
-        timer = setTimeout(function () {
-            fetch('{{ route('app-accounts.students') }}?q=' + encodeURIComponent(term))
-                .then(function (r) { return r.json(); })
-                .then(function (json) {
-                    hasil.innerHTML = '';
-                    (json.data || []).forEach(function (s) {
-                        const item = document.createElement('button');
-                        item.type = 'button';
-                        item.className = 'list-group-item list-group-item-action fs-8';
-                        item.textContent = s.name + ' — ' + (s.nisn || 'tanpa NISN')
-                            + ' · ' + s.classroom + ' · ' + s.school;
-                        item.onclick = function () {
-                            if (role.value === 'siswa') dipilih.clear();
-                            dipilih.set(s.id, s.name + ' (' + s.classroom + ')');
-                            renderTerpilih();
-                            hasil.innerHTML = '';
-                            cari.value = '';
+    // Dropdown siswa yang bisa dicari.
+    //
+    // Sebelumnya berupa kotak cari + daftar hasil + daftar terpilih terpisah:
+    // tiga blok untuk satu pilihan. Select2 (sudah ada di plugins.bundle
+    // Metronic) menyatukannya, dan pencariannya tetap ke endpoint yang sama
+    // sehingga penyaringan lingkup sekolah di server tidak berubah.
+    const pilihSiswa = $('#pilih-siswa');
+    pilihSiswa.select2({
+        width: '100%',
+        placeholder: pilihSiswa.data('placeholder'),
+        minimumInputLength: 3,
+        language: {
+            inputTooShort: function () { return 'Ketik minimal 3 huruf'; },
+            searching: function () { return 'Mencari...'; },
+            noResults: function () { return 'Tidak ada siswa yang cocok'; },
+        },
+        ajax: {
+            url: pilihSiswa.data('url'),
+            dataType: 'json',
+            delay: 250,
+            data: function (params) { return { q: params.term }; },
+            processResults: function (json) {
+                return {
+                    results: (json.data || []).map(function (s) {
+                        return {
+                            id: s.id,
+                            text: s.name + ' — ' + (s.nisn || 'tanpa NISN')
+                                  + ' · ' + s.classroom + ' · ' + s.school,
                         };
-                        hasil.appendChild(item);
-                    });
-                });
-        }, 300);
+                    }),
+                };
+            },
+            cache: true,
+        },
+    });
+    
+    // Akun siswa menaut TEPAT satu siswa; akun orang tua boleh beberapa anak.
+    pilihSiswa.on('select2:select', function () {
+        if (role.value !== 'siswa') return;
+        const v = pilihSiswa.val() || [];
+        if (v.length > 1) pilihSiswa.val([v[v.length - 1]]).trigger('change');
     });
 
     role.addEventListener('change', render);

@@ -42,6 +42,27 @@
     </div>
 
     <div class="card card-flush border border-gray-200">
+        {{-- Tab per peran: tiap peran punya daftarnya sendiri, tidak lagi
+             bercampur dalam satu tabel dengan dropdown filter. --}}
+        <div class="card-header pt-4 pb-0 border-0">
+            <ul class="nav nav-tabs nav-line-tabs nav-line-tabs-2x border-0 fs-7 fw-bold">
+                <li class="nav-item">
+                    <a class="nav-link {{ request('role') ? '' : 'active' }}"
+                       href="{{ route('app-accounts.index', array_filter(['q' => request('q')])) }}">
+                        Semua
+                    </a>
+                </li>
+                @foreach ($roles as $key => $label)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request('role') === $key ? 'active' : '' }}"
+                           href="{{ route('app-accounts.index', array_filter(['role' => $key, 'q' => request('q')])) }}">
+                            {{ $label }}
+                        </a>
+                    </li>
+                @endforeach
+            </ul>
+        </div>
+
         <div class="card-header pt-6 pb-2">
             <form method="GET" class="row g-3 w-100 align-items-end">
                 <div class="col-12 col-md-4">
@@ -49,17 +70,9 @@
                     <input type="search" name="q" value="{{ request('q') }}"
                            class="form-control form-control-sm" placeholder="mis. 0071234567">
                 </div>
-                <div class="col-6 col-md-3">
-                    <label class="form-label fs-8 text-muted">Peran</label>
-                    <select name="role" class="form-select form-select-sm" onchange="this.form.submit()">
-                        <option value="">Semua peran</option>
-                        @foreach ($roles as $key => $label)
-                            <option value="{{ $key }}" {{ request('role') === $key ? 'selected' : '' }}>
-                                {{ $label }}
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
+                    {{-- Peran dipilih lewat tab di atas; di form ini cukup dibawa diam-diam
+                         supaya pencarian nama tidak melepas tab yang sedang aktif. --}}
+                    <input type="hidden" name="role" value="{{ request('role') }}">
                 <div class="col-6 col-md-2">
                     <button class="btn btn-sm btn-light-primary w-100">Cari</button>
                 </div>

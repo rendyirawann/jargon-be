@@ -185,8 +185,10 @@ Route::middleware(['auth', 'forbid-banned-user'])->group(function () {
     Route::get('/admin/biometric/scan', [FaceEnrollmentController::class, 'scan'])->name('biometric.scan');
     Route::get('/admin/biometric/{student}/capture', [FaceEnrollmentController::class, 'capture'])->name('biometric.capture');
     Route::post('/admin/biometric/{student}', [FaceEnrollmentController::class, 'store'])->name('biometric.store');
+    Route::post('/admin/biometric/{student}/batch', [FaceEnrollmentController::class, 'storeBatch'])->name('biometric.store-batch');
     Route::get('/admin/biometric/{student}', [FaceEnrollmentController::class, 'show'])->name('biometric.show');
     Route::delete('/admin/biometric/sample/{enrollment}', [FaceEnrollmentController::class, 'destroy'])->name('biometric.destroy');
+    Route::delete('/admin/biometric/{student}/samples', [FaceEnrollmentController::class, 'reset'])->name('biometric.reset');
 
     // --- Absensi ---
     Route::get('/admin/attendances', [AttendanceController::class, 'index'])->name('attendances.index');

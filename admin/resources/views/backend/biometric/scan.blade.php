@@ -2,6 +2,42 @@
 @section('title', 'Absensi Wajah')
 
 @section('content')
+
+    {{-- Mode kios: halaman ini dipakai di gerbang dan dipandang dari jarak satu
+         meter. Navbar, sidebar, dan footer tidak ada gunanya di sana — hanya
+         memberi jalan salah-klik ke halaman lain saat tablet ditinggal tanpa
+         penjaga. Disembunyikan lewat CSS, bukan layout terpisah, supaya seluruh
+         aset dan JS layout (Swal, toastr, face-api) tetap termuat apa adanya. --}}
+    @push('stylesheets')
+        <style>
+            #kt_header,
+            #kt_app_sidebar,
+            #kt_sidebar_overlay,
+            .footer,
+            #kt_footer { display: none !important; }
+
+            #kt_content_container { padding: 0 !important; }
+            .content { padding: 10px !important; }
+            .header-fixed[data-kt-sticky-header="on"] .wrapper { padding-top: 0 !important; }
+
+            /* Jalan keluar tetap ada, tetapi dibuat samar supaya tidak menarik
+               tangan siswa yang sedang mengantre. */
+            .jg-kios-keluar {
+                position: fixed;
+                right: 12px;
+                bottom: 12px;
+                z-index: 1050;
+                opacity: 0.3;
+                transition: opacity 0.15s ease;
+            }
+            .jg-kios-keluar:hover,
+            .jg-kios-keluar:focus { opacity: 1; }
+        </style>
+    @endpush
+
+    <a href="{{ route('dashboard') }}" class="btn btn-sm btn-light jg-kios-keluar">
+        Keluar mode kios
+    </a>
     <style>
         /* Panduan arah dibuat BESAR dan bergerak.
            Teks kecil tidak terbaca dari jarak satu meter, dan siswa yang
@@ -42,7 +78,7 @@
         <div>
             <h2 class="fw-bold text-gray-900 mb-1">Absensi Wajah</h2>
             <span class="text-muted fs-7">
-                Hadap depan, lalu ikuti arah yang diminta. Kehadiran tercatat sendiri.
+                Cukup hadap lurus ke kamera. Kehadiran tercatat sendiri.
             </span>
         </div>
         <a href="{{ route('biometric.index') }}" class="btn btn-sm btn-light">Pendaftaran Wajah</a>
@@ -115,7 +151,7 @@
 
             {{-- Tiga langkah, terlihat sepanjang waktu supaya siswa tahu
                  sedang di mana tanpa perlu dijelaskan petugas. --}}
-            <div class="d-flex gap-3 mt-4">
+            <div class="d-flex gap-3 mt-4 d-none">{{-- tiga langkah tidak dipakai lagi --}}
                 <div id="stepDepan" class="flex-grow-1 rounded p-3 bg-light text-center">
                     <span class="fs-3 d-block">&#128100;</span>
                     <span class="fs-8 fw-bold">1. Hadap depan</span>
@@ -241,6 +277,12 @@
         // --- Mesin keadaan tantangan ---
         // depan -> toleh -> balik -> (kirim) -> tunggu_kosong -> depan
         let fase = 'depan';
+
+        // Bacaan yaw MENTAH terakhir, untuk menyesuaikan titik nol kamera.
+        // Halaman pendaftaran sudah memakai ini; halaman absensi belum, itulah
+        // sebabnya "hadap depan" di sini terasa jauh lebih susah: wajah lurus
+        // terbaca mis. 0.16 dan langsung dianggap menoleh.
+        const yawBuf = [];
         let arah = null;                       // 'right' | 'left'
         const streak = new JargonFace.Streak(3);
 
@@ -424,6 +466,8 @@
             el('btnStop').classList.remove('d-none');
             mulaiTantangan();
             setStatus('Berjalan. Berdiri di depan kamera.', 'ok');
+            JargonFace.setYawBias(0);
+            yawBuf.length = 0;
             timer = setInterval(tick, SCAN_INTERVAL_MS);
         });
 
@@ -439,9 +483,15 @@
         }
 
         function targetFase() {
-            if (fase === 'depan' || fase === 'balik') return 'frontal';
-            if (fase === 'toleh') return arah;
-            return null;
+            // Absensi cukup SEKALI hadap depan. Tantangan tiga langkah
+            // (depan - menoleh - depan lagi) dilepas atas permintaan: di lapangan
+            // antrean pagi jadi lambat dan siswa bingung.
+            //
+            // PERHATIAN: tantangan itu satu-satunya penahan foto cetak/layar ponsel
+            // (foto tidak bisa menoleh). Tanpa itu, liveness tinggal deteksi kedip
+            // pasif di face_engine tablet — untuk produksi sebaiknya dihidupkan lagi
+            // atau diganti model anti-spoof.
+            return fase === 'tunggu_kosong' ? null : 'frontal';
         }
 
         async function tick() {
@@ -464,6 +514,41 @@
                 const target = targetFase();
                 tampilkanArah(r.pose, r.yaw, target);
 
+                // Geser titik nol ke posisi kepala yang sedang DIAM bila 'hadap depan'
+
+                // belum juga cocok. Syarat diam menjaga kebenaran: kepala yang sedang
+
+                // menoleh tidak boleh ikut dianggap lurus.
+
+                if (r.yawRaw !== undefined) {
+
+                    yawBuf.push(r.yawRaw);
+
+                    if (yawBuf.length > 10) yawBuf.shift();
+
+                }
+
+                if (target === 'frontal' && r.pose !== 'frontal' && yawBuf.length >= 6) {
+
+                    const urut = yawBuf.slice().sort(function (a, b) { return a - b; });
+
+                    if (urut[urut.length - 1] - urut[0] < 0.10) {
+
+                        JargonFace.setYawBias(urut[Math.floor(urut.length / 2)]);
+
+                        yawBuf.length = 0;
+
+                        streak.reset();
+
+                        setStatus('Menyesuaikan titik nol kamera — tahan kepala sebentar...', null);
+
+                        return;
+
+                    }
+
+                }
+
+
                 const cocok = r.pose === target;
                 el('guide').className =
                     'position-absolute top-50 start-50 translate-middle border border-4 rounded-circle opacity-50 '
@@ -473,33 +558,12 @@
 
                 if (!cocok) {
                     streak.reset();
-                    el('bigHint').textContent =
-                        fase === 'depan' ? 'Langkah 1 dari 3'
-                        : fase === 'toleh' ? 'Langkah 2 dari 3'
-                        : 'Langkah 3 dari 3';
+                    el('bigHint').textContent = 'Hadap lurus ke kamera';
                     setStatus('Terdeteksi ' + JargonFace.poseLabel(r.pose) + '.', 'warn');
                     return;
                 }
 
                 if (!streak.push(r.pose)) return;
-
-                if (fase === 'depan') {
-                    fase = 'toleh';
-                    streak.reset();
-                    gambarLangkah();
-                    tunjukArah(arah, false);
-                    setStatus('Sekarang menoleh ke ' + labelArah(arah).toLowerCase() + '.', 'ok');
-                    return;
-                }
-
-                if (fase === 'toleh') {
-                    fase = 'balik';
-                    streak.reset();
-                    gambarLangkah();
-                    tunjukArah('frontal', false);
-                    setStatus('Bagus. Hadap depan lagi untuk menyelesaikan.', 'ok');
-                    return;
-                }
 
                 // fase === 'balik' dan sudah stabil menghadap depan.
                 //
@@ -580,6 +644,91 @@
 
         // ---------------- Tampilan hasil ----------------
 
+        /**
+
+         * Pop-up hasil absensi.
+
+         *
+
+         * Panel di samping saja tidak cukup: siswa berdiri di depan kamera dan
+
+         * tidak selalu melihat ke sisi layar, sementara petugas perlu bukti yang
+
+         * tidak bisa terlewat bahwa absensi BENAR tercatat dan untuk siapa.
+
+         *
+
+         * Yang berhasil menutup sendiri setelah 4 detik supaya antrean tidak
+
+         * berhenti; yang gagal menunggu ditutup, karena perlu tindakan.
+
+         */
+
+        function popupHasil(matched, s, a, message) {
+
+            if (!window.Swal) return;
+
+        
+
+            const baris = [];
+
+            if (s) {
+
+                const id = s.nisn || s.nis;
+
+                if (id) baris.push('NISN/NIS: <b>' + id + '</b>');
+
+                if (s.classroom_name) baris.push('Kelas: <b>' + s.classroom_name + '</b>');
+
+                if (s.school_name) baris.push(s.school_name);
+
+            }
+
+            if (a) {
+
+                if (a.status) baris.push('Status: <b>' + a.status + '</b>');
+
+                if (a.late_minutes) baris.push('Terlambat ' + a.late_minutes + ' menit');
+
+                const jam = a.check_out_at || a.check_in_at;
+
+                if (jam) {
+
+                    baris.push('Waktu: <b>'
+
+                        + new Date(jam).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+
+                        + '</b>');
+
+                }
+
+            }
+
+        
+
+            Swal.fire({
+
+                title: matched ? (s ? s.full_name : 'Absensi tercatat') : 'Tidak dikenali',
+
+                html: (message ? '<div class="mb-3">' + message + '</div>' : '')
+
+                      + (baris.length ? '<div class="text-start fs-7 text-muted">' + baris.join('<br>') + '</div>' : ''),
+
+                icon: matched ? 'success' : 'error',
+
+                confirmButtonText: matched ? 'Berikutnya' : 'Tutup',
+
+                confirmButtonColor: matched ? '#0f766e' : '#dc2626',
+
+                timer: matched ? 4000 : undefined,
+
+                timerProgressBar: matched,
+
+            });
+
+        }
+
+
         function render(data, message) {
             const matched = !!data.matched;
             const s = data.student || null;
@@ -605,6 +754,9 @@
 
             setStatus(message || (matched ? 'Tercatat.' : 'Tidak dikenali.'),
                       matched ? 'ok' : 'warn');
+
+
+            popupHasil(matched, s, data.attendance || null, message);
 
             const key = (s ? s.id : 'unknown') + '|' + (data.action || '');
             if (key === lastKey) return;

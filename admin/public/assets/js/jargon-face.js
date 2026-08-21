@@ -50,7 +50,7 @@
      * benar-benar simetris, dan menuntut 0 akan membuat langkah "hadap
      * depan" terasa mustahil diselesaikan.
      */
-    var YAW_FRONTAL_MAX = 0.22;   // dilonggarkan 21 Agt 2026: wajah lurus di
+    var YAW_FRONTAL_MAX = 0.08;
                                   // webcam laptop terbaca ~0.20 (kamera tidak
                                   // tepat di tengah + wajah tidak simetris),
                                   // sehingga 0.14 membuat langkah "hadap depan"
@@ -59,11 +59,31 @@
     /**
      * Batas yaw untuk menyatakan kepala SUDAH menoleh.
      *
-     * Harus cukup jauh dari YAW_FRONTAL_MAX agar tidak ada wilayah
+     * Cukup jauh dari YAW_FRONTAL_MAX agar tidak ada wilayah
      * ambigu yang membuat status berkedip-kedip antara "depan" dan
      * "menoleh".
      */
-    var YAW_TURN_MIN = 0.36;      // dinaikkan seiring YAW_FRONTAL_MAX agar celah
+    var YAW_TURN_MIN = 0.12;
+
+    /**
+     * Titik nol yaw untuk kamera + wajah yang sedang dipakai.
+     *
+     * Webcam laptop jarang tepat di tengah wajah, dan wajah manusia tidak
+     * simetris. Akibatnya "lurus" bisa terbaca 0.20, bukan 0.00 — dan menoleh
+     * ke arah yang berlawanan dengan bias itu jadi terasa jauh lebih berat
+     * karena harus melewati bias dulu sebelum ambang tercapai.
+     *
+     * Nilai ini diisi halaman pengambilan lewat setYawBias() dari beberapa
+     * bacaan saat operator diminta melihat lurus. Bawaannya 0, jadi pemakai
+     * yang tidak mengalibrasi tetap berperilaku seperti sebelumnya.
+     */
+    var YAW_BIAS = 0;
+
+    function setYawBias(v) {
+        YAW_BIAS = (typeof v === 'number' && isFinite(v)) ? v : 0;
+    }
+
+    function yawBias() { return YAW_BIAS; }
                                   // "antara" tetap lebar (0.22 -> 0.36) dan
                                   // status tidak berkedip saat kepala bergerak.
 
@@ -240,7 +260,10 @@
                     );
                 }
 
-                var yaw = yawOf(r.landmarks);
+                var yawMentah = yawOf(r.landmarks);
+                // Pose ditentukan dari yaw yang SUDAH dikurangi bias; nilai mentah
+                // tetap dikembalikan supaya halaman bisa mengalibrasi ulang.
+                var yaw = yawMentah - YAW_BIAS;
 
                 return {
                     descriptor: Array.prototype.slice.call(r.descriptor),
@@ -248,6 +271,7 @@
                     box: r.detection.box,
                     ratio: ratio,
                     yaw: yaw,
+                    yawRaw: yawMentah,
                     pose: poseOf(yaw)
                 };
             });
@@ -299,6 +323,8 @@
         load: load,
         describe: describe,
         poseOf: poseOf,
+        setYawBias: setYawBias,
+        yawBias: yawBias,
         poseLabel: poseLabel,
         nonce: nonce,
         Streak: Streak,
