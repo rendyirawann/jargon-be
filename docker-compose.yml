@@ -132,9 +132,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET kosong - jalankan setup.bat (Windows) atau ./setup.sh}
       SECRETS_KEY_HEX: ${SECRETS_KEY_HEX:?SECRETS_KEY_HEX kosong - jalankan setup.bat (Windows) atau ./setup.sh}
       STORAGE_ROOT: /app/storage
-      FACE_EMBEDDING_DIM: ${FACE_EMBEDDING_DIM:-512}
-      FACE_MODEL_VERSION: ${FACE_MODEL_VERSION:-mobilefacenet-v1}
-      FACE_MATCH_THRESHOLD: ${FACE_MATCH_THRESHOLD:-0.62}
+      FACE_EMBEDDING_DIM: ${FACE_EMBEDDING_DIM:-128}
+      FACE_MODEL_VERSION: ${FACE_MODEL_VERSION:-faceapi-v1}
+      FACE_MATCH_THRESHOLD: ${FACE_MATCH_THRESHOLD:-0.82}
       NOTIFY_ENABLED: ${NOTIFY_ENABLED:-false}
       WA_PROVIDER: ${WA_PROVIDER:-fonnte}
       WA_TOKEN: ${WA_TOKEN:-}
@@ -192,8 +192,8 @@ services:
       # server. PUBLIC_URL dipakai untuk tautan yang dibuka browser.
       ABSENSI_API_URL: http://api:8080
       ABSENSI_API_PUBLIC_URL: ${PUBLIC_URL:-http://localhost}
-      FACE_EMBEDDING_DIM: ${FACE_EMBEDDING_DIM:-512}
-      FACE_MODEL_VERSION: ${FACE_MODEL_VERSION:-mobilefacenet-v1}
+      FACE_EMBEDDING_DIM: ${FACE_EMBEDDING_DIM:-128}
+      FACE_MODEL_VERSION: ${FACE_MODEL_VERSION:-faceapi-v1}
     volumes:
       - admin-storage:/var/www/admin/storage
 

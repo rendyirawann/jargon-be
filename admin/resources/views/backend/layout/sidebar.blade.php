@@ -126,14 +126,28 @@
             @endif
 
             <!--begin::Section: Biometrik & Perangkat-->
-            @if ($can('view_face_enrollment') || $can('view_device'))
+            @if ($can('view_face_enrollment') || $can('view_device') || $can('operate_face_kiosk'))
                 <div class="menu-item pt-5">
                     <div class="menu-content"><span class="menu-heading fw-bold text-uppercase fs-7">Face Recognition</span></div>
                 </div>
 
+                {{-- Absensi wajah ditaruh PALING ATAS di bagian ini: itu yang
+                     dibuka setiap hari, sementara pendaftaran wajah hanya
+                     sekali per siswa. --}}
+                @if ($can('operate_face_kiosk'))
+                    <div class="menu-item">
+                        <a class="menu-link {{ request()->routeIs('biometric.scan') ? 'active' : '' }}" href="{{ route('biometric.scan') }}">
+                            <span class="menu-icon">
+                                <i class="ki-duotone ki-focus fs-3"><span class="path1"></span><span class="path2"></span><span class="path3"></span></i>
+                            </span>
+                            <span class="menu-title">Absensi Wajah</span>
+                        </a>
+                    </div>
+                @endif
+
                 @if ($can('view_face_enrollment'))
                     <div class="menu-item">
-                        <a class="menu-link {{ $is('admin/biometric*') ? 'active' : '' }}" href="{{ route('biometric.index') }}">
+                        <a class="menu-link {{ $is('admin/biometric*') && ! request()->routeIs('biometric.scan') ? 'active' : '' }}" href="{{ route('biometric.index') }}">
                             <span class="menu-icon">
                                 <i class="ki-duotone ki-scan-barcode fs-3"><span class="path1"></span><span class="path2"></span><span class="path3"></span><span class="path4"></span><span class="path5"></span><span class="path6"></span><span class="path7"></span><span class="path8"></span></i>
                             </span>

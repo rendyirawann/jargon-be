@@ -48,6 +48,13 @@ pub struct HomeSummary {
     pub available_menus: Vec<String>,
 }
 
+/// Peran yang boleh membuka menu pengenalan wajah di aplikasi.
+///
+/// Sengaja daftar PERAN, bukan izin: izin pendaftaran wajah dimiliki juga
+/// guru dan staff TU untuk keperluan dashboard, sedangkan pintu absensi di
+/// ponsel harus lebih sempit daripada itu.
+const ADMIN_FACE_ROLES: [&str; 2] = ["superadmin", "admin_dinas"];
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct StudentTodayCard {
     pub student_id: Uuid,
@@ -144,6 +151,21 @@ pub async fn home(
         || user.has_permission("verify_document_submission")
     {
         available_menus.push("pemberkasan".to_string());
+    }
+
+    // Menu pengenalan wajah HANYA untuk admin/superadmin.
+    //
+    // Dibatasi PERAN, bukan izin, dan itu disengaja. Izin
+    // `create_face_enrollment` dimiliki juga guru dan staff TU supaya
+    // mereka bisa mendaftarkan wajah dari dashboard — tetapi menu ini di
+    // aplikasi membuka alat yang MENCATAT KEHADIRAN, dan kehadiran tidak
+    // boleh bisa dicatat dari ponsel pribadi siapa pun yang kebetulan
+    // memegang izin itu.
+    //
+    // Guru tetap dapat mendaftarkan wajah lewat dashboard /admin; yang
+    // tidak diberikan adalah pintu absensi di ponsel.
+    if user.roles.iter().any(|r| ADMIN_FACE_ROLES.contains(&r.as_str())) {
+        available_menus.push("face_recognition".to_string());
     }
 
     Ok(ApiResponse::new(HomeSummary {

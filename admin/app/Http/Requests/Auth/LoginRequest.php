@@ -54,16 +54,37 @@ class LoginRequest extends FormRequest
         // 3. DETEKSI TIPE LOGIN (Email / No WA / Nama)
         $loginValue = $this->input('email');
 
+        // Kolom yang dicoba, BERURUTAN.
+        //
+        // Sebelumnya hanya SATU kolom yang dicoba, dan untuk nilai yang bukan
+        // email maupun angka kolom itu adalah `name`. Akibatnya `superadmin`
+        // — yang tertulis di seluruh dokumentasi sebagai username — selalu
+        // gagal, karena kolom `name` berisi "Super Administrator". Yang
+        // muncul di layar hanyalah "Akun atau Password salah", sehingga
+        // kesalahannya tampak seperti kata sandi yang keliru.
+        //
+        // Urutannya penting: `username` didahulukan atas `name` karena
+        // username unik, sedangkan nama bisa sama antar-orang.
         if (filter_var($loginValue, FILTER_VALIDATE_EMAIL)) {
-            $field = 'email';
+            $fields = ['email'];
         } elseif (is_numeric($loginValue)) {
-            $field = 'no_wa';
+            // Angka bisa berarti nomor WhatsApp, NIK (16 digit), atau NISN
+            // (10 digit) — akun aplikasi Jargon GO memakai dua yang terakhir.
+            $fields = ['identity_number', 'no_wa', 'username'];
         } else {
-            $field = 'name'; // Asumsi kolom di DB adalah 'name'
+            $fields = ['username', 'name'];
         }
 
         // 4. COBA LOGIN
-        if (! Auth::attempt([$field => $loginValue, 'password' => $this->input('password')], $this->boolean('remember'))) {
+        $ok = false;
+        foreach ($fields as $field) {
+            if (Auth::attempt([$field => $loginValue, 'password' => $this->input('password')], $this->boolean('remember'))) {
+                $ok = true;
+                break;
+            }
+        }
+
+        if (! $ok) {
 
             // === JIKA LOGIN GAGAL ===
 

@@ -171,8 +171,8 @@ impl Config {
             max_upload_bytes: env_parse("MAX_UPLOAD_BYTES", 8 * 1024 * 1024),
 
             face: FaceConfig {
-                embedding_dim: env_parse("FACE_EMBEDDING_DIM", 512),
-                model_version: env_or("FACE_MODEL_VERSION", "mobilefacenet-v1"),
+                embedding_dim: env_parse("FACE_EMBEDDING_DIM", 128),
+                model_version: env_or("FACE_MODEL_VERSION", "faceapi-v1"),
                 match_threshold: env_parse("FACE_MATCH_THRESHOLD", 0.62_f32),
                 match_margin: env_parse("FACE_MATCH_MARGIN", 0.04_f32),
                 min_liveness: env_parse("FACE_MIN_LIVENESS", 0.5_f32),

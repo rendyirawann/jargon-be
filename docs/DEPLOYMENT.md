@@ -847,6 +847,138 @@ powershell -File scripts/check-db.ps1      # Windows
 
 ---
 
+## 2.12 Pengenalan wajah di BROWSER
+
+Sejak migrasi `0014`/`0015`, pengenalan wajah berjalan di dashboard
+`/admin` — tanpa tablet, tanpa aplikasi Android.
+
+| Halaman | Untuk apa |
+|---|---|
+| `/admin/biometric` | daftar siswa & status pendaftaran wajah |
+| `/admin/biometric/{id}/capture` | **mendaftarkan** wajah siswa |
+| `/admin/biometric/scan` | **absensi** — siswa berdiri di depan kamera |
+
+### Model yang dipakai
+
+face-api.js (`@vladmandic/face-api`), tiga model yang ikut disimpan di
+repositori (~7 MB, MIT):
+
+| Berkas | Guna |
+|---|---|
+| `tiny_face_detector` | deteksi wajah, cukup cepat untuk video |
+| `face_landmark_68` | **menyelaraskan** wajah sebelum embedding |
+| `face_recognition` | embedding **128 dimensi** |
+
+Landmark bukan hiasan: tanpa penyelarasan, wajah yang sedikit miring
+menghasilkan vektor yang jauh berbeda dan siswa yang sah gagal dikenali.
+
+Ekstraksi embedding HANYA ada di
+`admin/public/assets/js/jargon-face.js`, dipakai bersama halaman
+pendaftaran dan halaman absensi. Kalau masing-masing punya salinannya
+sendiri, satu perubahan kecil di salah satunya membuat wajah yang sudah
+terdaftar tidak lagi dikenali — dan kegagalannya tidak tampak sebagai bug,
+hanya sebagai "sistemnya kurang akurat".
+
+### Dimensi 128, bukan 512
+
+`FACE_EMBEDDING_DIM=128` dan `FACE_MODEL_VERSION=faceapi-v1`.
+
+Sistem memakai **satu model pada satu waktu**: kolom
+`face_embeddings.embedding` punya dimensi tetap, dan `FACE_EMBEDDING_DIM`
+satu nilai global. Jadi jalur tablet Android (MobileFaceNet, 512-d lewat
+TFLite) **tidak dapat dipakai bersamaan**.
+
+Itu pertukaran yang disengaja: jalur tablet toh belum dapat dipakai
+(berkas `mobilefacenet.tflite` tidak disertakan repositori), sedangkan
+pengenalan dari browser berjalan hari ini. Sebagai imbalan, vektor 128-d
+juga 4× lebih murah dicocokkan dan 4× lebih hemat memori pada index
+per-sekolah.
+
+Untuk kembali ke 512-d: ubah kedua nilai itu, buat migrasi yang mengubah
+tipe kolom, dan **daftarkan ulang seluruh wajah**. Embedding lintas model
+tidak dapat dikonversi — 128 angka itu bukan ringkasan dari 512 angka yang
+lain.
+
+### Ambang kemiripan: 0.82, bukan 0.62
+
+`FACE_MATCH_THRESHOLD` **bergantung model** dan tidak boleh disalin
+antar-model.
+
+face-api.js lazim dibandingkan dengan **jarak euclid**, ambang 0.6. Server
+memakai **cosine similarity**. Karena descriptor-nya ber-norm 1, keduanya
+berhubungan tepat:
+
+```
+d² = 2(1 − s)        ⇒   s = 1 − d²/2
+d = 0.60             ⇒   s = 0.82
+```
+
+Memakai 0.62 (nilai untuk MobileFaceNet) setara dengan jarak euclid 0.87 —
+jauh lebih longgar daripada yang dianjurkan, dan itu berarti wajah orang
+lain dapat dicatat sebagai siswa.
+
+### Halaman absensi bekerja sebagai PERANGKAT KIOS
+
+`/admin/biometric/scan` tidak memakai endpoint khusus dashboard. Ia
+melakukan pairing sekali dengan kode 8 digit dari `/admin/devices`, lalu
+memanggil `POST /v1/kiosk/recognize` yang sudah ada.
+
+Konsekuensinya seluruh aturan yang sudah teruji ikut berlaku tanpa ditulis
+dua kali: jendela jam masuk/pulang, jeda antar-scan, ambang kemiripan,
+margin kembar, anti-replay nonce, pencatatan `device_id`, dan notifikasi
+wali murid. Menambah endpoint sendiri untuk web berarti menyalin semua itu,
+dan salinan yang menyimpang menghasilkan absensi yang berbeda hanya karena
+alatnya berbeda.
+
+Langkahnya:
+
+1. `/admin/devices` → buat perangkat (mis. kode `WEB-PIKET-01`, placement
+   `gate`, mode `auto`). Catat kode pairing 8 digitnya.
+2. `/admin/biometric/scan` → masukkan kode itu. Cukup **sekali**; token
+   tersimpan di browser komputer tersebut.
+3. Tekan **Mulai Absensi**.
+
+Token perangkat tinggal di `localStorage` browser. Itu setara dengan token
+pada tablet di lorong sekolah, dan dapat dicabut kapan saja dari
+`/admin/devices`. Tombol **Lepas Perangkat** menghapusnya dari komputer itu.
+
+### Izin
+
+`operate_face_kiosk` — izin **tersendiri**, diberikan kepada `superadmin`,
+`admin_dinas`, `kepala_sekolah`, dan `staff_tu`. **Tidak** kepada `guru`.
+
+Dipisahkan dari `create_face_enrollment` dengan sengaja: guru boleh
+mendaftarkan wajah di kelasnya tanpa harus boleh menjalankan gerbang
+absensi, dan operator piket boleh menjalankan gerbang tanpa boleh
+menyentuh data biometrik.
+
+Di **aplikasi mobile**, menu `face_recognition` dibatasi lebih sempit lagi
+— hanya `superadmin` dan `admin_dinas` (lihat `ADMIN_FACE_ROLES` di
+`api/src/routes/me.rs`). Dibatasi peran, bukan izin: kehadiran tidak boleh
+bisa dicatat dari ponsel pribadi siapa pun yang kebetulan memegang izin
+kios.
+
+### Liveness
+
+Halaman web **tidak** memeriksa kedip atau gerak kepala, dan karena itu
+mengirim `liveness_score: 0.5` — bukan 1.0. Mengirim 1.0 akan berbohong
+kepada server dan membuat ambang `FACE_MIN_LIVENESS` tidak berarti.
+
+Penjaganya adalah operator yang hadir mengawasi layar. Untuk gerbang tanpa
+pengawasan, pakai tablet dengan liveness pasif, bukan halaman ini.
+
+### Batasan yang perlu diketahui
+
+* **Foto cetak dapat menipu halaman ini.** Tanpa liveness, selembar foto di
+  depan webcam akan dikenali. Jangan dipakai tanpa pengawasan.
+* Halaman harus dibuka lewat **HTTPS atau localhost** — browser menolak
+  memberi akses kamera pada origin lain.
+* Model ~7 MB diunduh browser sekali, lalu di-cache.
+* Menolak bila **lebih dari satu wajah** terdeteksi: pada absensi, menebak
+  berarti mencatat kehadiran orang yang salah.
+
+---
+
 ## 3. Onboarding satu sekolah
 
 Urutannya penting — melangkahi satu tahap membuat tahap berikutnya gagal.

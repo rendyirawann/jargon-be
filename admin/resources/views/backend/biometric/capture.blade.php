@@ -153,13 +153,19 @@
         Ekstraksi embedding dilakukan DI BROWSER, bukan di server.
 
         Alasannya konsistensi: vektor pendaftaran harus dihasilkan model yang
-        sama dengan yang dipakai tablet saat absen. Satu model di sisi klien,
-        satu `model_version` yang divalidasi server — kalau berbeda, request
+        sama dengan yang dipakai saat absen. Satu model di sisi klien, satu
+        `model_version` yang divalidasi server — kalau berbeda, request
         ditolak alih-alih menghasilkan pengenalan acak.
 
-        Model diletakkan di public/assets/models/facenet/ (lihat docs).
+        Kode ekstraksinya TIDAK ada di halaman ini, melainkan di
+        assets/js/jargon-face.js yang dipakai bersama halaman absensi. Kalau
+        masing-masing punya salinannya sendiri, satu perubahan kecil di
+        salah satunya membuat wajah yang sudah terdaftar tidak lagi
+        dikenali — dan kegagalannya tidak tampak sebagai bug, hanya sebagai
+        "sistemnya kurang akurat".
     --}}
-    <script src="{{ asset('assets/vendor/tfjs/tf.min.js') }}" defer></script>
+    <script src="{{ asset('assets/vendor/face-api/face-api.min.js') }}"></script>
+    <script src="{{ asset('assets/js/jargon-face.js') }}"></script>
     <script>
         (function () {
             const video = document.getElementById('video');
@@ -168,10 +174,11 @@
             const btnCapture = document.getElementById('btnCapture');
             const btnRetry = document.getElementById('btnRetry');
             const form = document.getElementById('enrollForm');
+
             const EMBEDDING_DIM = {{ $embeddingDim }};
+            const MODEL_BASE = @json(asset('assets/models/face-api'));
 
             let stream = null;
-            let model = null;
 
             function setStatus(text, tone) {
                 status.textContent = text;
@@ -186,72 +193,28 @@
                         audio: false,
                     });
                     video.srcObject = stream;
-                    setStatus('Kamera siap. Posisikan wajah di dalam lingkaran.', 'ok');
-                    await loadModel();
+                    setStatus('Kamera siap. Memuat model...', null);
                 } catch (e) {
                     setStatus('Kamera tidak dapat diakses: ' + e.message
                         + '. Pastikan izin kamera diberikan dan halaman diakses lewat HTTPS atau localhost.', 'error');
-                }
-            }
-
-            async function loadModel() {
-                if (typeof tf === 'undefined') {
-                    setStatus('Pustaka model belum tersedia. Lihat docs/DEPLOYMENT.md '
-                        + 'bagian "Model embedding di browser".', 'error');
                     return;
                 }
+
                 try {
-                    setStatus('Memuat model pengenalan wajah...', null);
-                    model = await tf.loadGraphModel(@json(asset('assets/models/facenet/model.json')));
+                    await JargonFace.load(MODEL_BASE);
                     btnCapture.disabled = false;
-                    setStatus('Model siap. Klik "Ambil & Simpan".', 'ok');
+                    setStatus('Model siap. Posisikan wajah lalu klik "Ambil & Simpan".', 'ok');
                 } catch (e) {
-                    setStatus('Model gagal dimuat: ' + e.message, 'error');
+                    setStatus(e.message || String(e), 'error');
                 }
             }
 
+            /** Simpan frame utuh sebagai arsip foto pendaftaran. */
             function grabFrame() {
-                // Crop persegi di tengah frame, lalu skala ke 160x160 sesuai
-                // input model. Rasio dijaga agar wajah tidak terdistorsi.
-                const size = Math.min(video.videoWidth, video.videoHeight);
-                const sx = (video.videoWidth - size) / 2;
-                const sy = (video.videoHeight - size) / 2;
-
-                canvas.width = 160;
-                canvas.height = 160;
-                canvas.getContext('2d').drawImage(video, sx, sy, size, size, 0, 0, 160, 160);
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0);
                 return canvas;
-            }
-
-            async function extractEmbedding(frame) {
-                const tensor = tf.tidy(function () {
-                    // Normalisasi ke [-1, 1] — konvensi FaceNet/MobileFaceNet.
-                    return tf.browser.fromPixels(frame)
-                        .toFloat()
-                        .sub(127.5)
-                        .div(127.5)
-                        .expandDims(0);
-                });
-
-                try {
-                    const output = model.predict(tensor);
-                    const raw = Array.from(await output.data());
-                    output.dispose();
-
-                    if (raw.length !== EMBEDDING_DIM) {
-                        throw new Error('Dimensi model ' + raw.length + ' tidak sesuai ' + EMBEDDING_DIM);
-                    }
-
-                    // L2-normalize di klien: server juga menormalkan, tetapi
-                    // mengirim vektor yang sudah normal membuat nilai yang
-                    // tersimpan dan yang dibandingkan pasti identik.
-                    let norm = Math.sqrt(raw.reduce((s, v) => s + v * v, 0));
-                    if (!isFinite(norm) || norm < 1e-9) throw new Error('Vektor tidak valid');
-
-                    return raw.map((v) => v / norm);
-                } finally {
-                    tensor.dispose();
-                }
             }
 
             btnCapture.addEventListener('click', async function () {
@@ -259,17 +222,26 @@
                 setStatus('Memproses wajah...', null);
 
                 try {
-                    const frame = grabFrame();
-                    const jpeg = frame.toDataURL('image/jpeg', 0.92);
-                    const embedding = await extractEmbedding(frame);
+                    // Deteksi dijalankan pada elemen VIDEO, bukan pada frame
+                    // yang sudah dipotong: face-api.js melakukan pemotongan
+                    // dan penyelarasan sendiri berdasarkan landmark, dan
+                    // memotong lebih dulu justru membuang informasi yang
+                    // dibutuhkannya.
+                    const result = await JargonFace.describe(video);
 
+                    if (result.descriptor.length !== EMBEDDING_DIM) {
+                        throw new Error('Dimensi model ' + result.descriptor.length
+                            + ' tidak sesuai konfigurasi server (' + EMBEDDING_DIM + ')');
+                    }
+
+                    const jpeg = grabFrame().toDataURL('image/jpeg', 0.92);
                     document.getElementById('imageBase64').value = jpeg.split(',')[1];
                     document.getElementById('embeddingJson').value = '';
 
                     // Embedding dikirim sebagai array field agar Laravel
                     // memvalidasinya sebagai array, bukan string JSON.
                     document.querySelectorAll('input[name^="embedding["]').forEach((el) => el.remove());
-                    embedding.forEach(function (v, i) {
+                    result.descriptor.forEach(function (v, i) {
                         const input = document.createElement('input');
                         input.type = 'hidden';
                         input.name = 'embedding[' + i + ']';
@@ -283,7 +255,7 @@
                     setStatus('Mengirim ke server...', 'ok');
                     form.submit();
                 } catch (e) {
-                    setStatus('Gagal memproses: ' + e.message, 'error');
+                    setStatus('Gagal: ' + (e.message || e), 'error');
                     btnCapture.disabled = false;
                 }
             });
@@ -298,6 +270,7 @@
             window.addEventListener('pagehide', function () {
                 if (stream) stream.getTracks().forEach((t) => t.stop());
             });
+
 
             startCamera();
         })();

@@ -179,6 +179,10 @@ Route::middleware(['auth', 'forbid-banned-user'])->group(function () {
 
     // --- Biometrik: pendaftaran wajah ---
     Route::get('/admin/biometric', [FaceEnrollmentController::class, 'index'])->name('biometric.index');
+    // Absensi wajah dari browser. Rute LITERAL ini harus berada SEBELUM
+    // /admin/biometric/{student}, kalau tidak Laravel akan mencoba
+    // mengikat "scan" sebagai model Student dan menghasilkan 404.
+    Route::get('/admin/biometric/scan', [FaceEnrollmentController::class, 'scan'])->name('biometric.scan');
     Route::get('/admin/biometric/{student}/capture', [FaceEnrollmentController::class, 'capture'])->name('biometric.capture');
     Route::post('/admin/biometric/{student}', [FaceEnrollmentController::class, 'store'])->name('biometric.store');
     Route::get('/admin/biometric/{student}', [FaceEnrollmentController::class, 'show'])->name('biometric.show');

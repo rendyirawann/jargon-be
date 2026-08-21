@@ -77,17 +77,41 @@ ON CONFLICT DO NOTHING;
 -- Tanpa baris ini, pengenalan wajah menolak semua scan dengan "di luar
 -- jam absensi" — dan itu terlihat seperti kerusakan, bukan konfigurasi.
 -- ------------------------------------------------------------------
+-- Jendela dibuat SANGAT LONGGAR, sengaja.
+--
+-- Aturan sekolah sebenarnya (06:30-09:00) membuat pengujian hanya bisa
+-- dilakukan pada jam itu. Di luar jam tersebut setiap scan dijawab "Di
+-- luar jam absensi" - benar menurut aturan, tetapi tidak dapat dibedakan
+-- dari kerusakan oleh orang yang sedang mencoba sistemnya pertama kali.
+--
+--   check_in_due_at 23:58  -> praktis tidak pernah terlambat
+--   active_weekdays 127    -> tujuh hari, termasuk Sabtu-Minggu
+--   require_check_out FALSE -> satu scan sudah menyelesaikan absensi
+--
+-- HAPUS baris ini sebelum produksi. Jendela 24 jam berarti siswa dapat
+-- tercatat hadir pada jam berapa pun, termasuk tengah malam.
 INSERT INTO attendance_rules (school_id, name, check_in_opens_at, check_in_start_at,
                               check_in_due_at, check_in_closes_at,
                               check_out_opens_at, check_out_closes_at,
                               late_grace_minutes, active_weekdays, require_check_out)
-SELECT s.id, 'Jadwal Reguler (DEMO)', '05:30', '06:30', '07:15', '09:00',
-       '12:00', '18:00', 5, 31, TRUE
+SELECT s.id, 'DEMO - tanpa batas jam', '00:00', '00:01', '23:58', '23:59',
+       '00:01', '23:59', 0, 127, FALSE
 FROM schools s WHERE s.npsn = '10259001'
   AND NOT EXISTS (
       SELECT 1 FROM attendance_rules ar
       WHERE ar.school_id = s.id AND ar.classroom_id IS NULL
   );
+
+-- Bila aturan lama dari jalan sebelumnya masih ada, longgarkan.
+UPDATE attendance_rules ar
+   SET name = 'DEMO - tanpa batas jam',
+       check_in_opens_at = '00:00', check_in_start_at = '00:01',
+       check_in_due_at = '23:58', check_in_closes_at = '23:59',
+       check_out_opens_at = '00:01', check_out_closes_at = '23:59',
+       late_grace_minutes = 0, active_weekdays = 127,
+       require_check_out = FALSE, updated_at = NOW()
+ FROM schools s
+WHERE s.npsn = '10259001' AND ar.school_id = s.id AND ar.classroom_id IS NULL;
 
 COMMIT;
 

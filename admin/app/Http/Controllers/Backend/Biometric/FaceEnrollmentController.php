@@ -42,6 +42,11 @@ class FaceEnrollmentController extends Controller implements HasMiddleware
             'auth',
             new Middleware('can:view_face_enrollment', only: ['index', 'show']),
             new Middleware('can:create_face_enrollment', only: ['capture', 'store']),
+            // Izin TERSENDIRI, bukan izin pendaftaran wajah maupun koreksi
+            // absensi: halaman itu MENCATAT kehadiran lewat pemindaian, dan
+            // itu kewenangan yang sebaiknya bisa diberikan terpisah — guru
+            // boleh mendaftarkan wajah tanpa boleh menjalankan gerbang.
+            new Middleware('can:operate_face_kiosk', only: ['scan']),
             new Middleware('can:delete_face_enrollment', only: ['destroy']),
         ];
     }
@@ -93,6 +98,36 @@ class FaceEnrollmentController extends Controller implements HasMiddleware
             'student' => $student->load('classroom', 'school'),
             'samples' => $student->faceEnrollments()->orderByDesc('created_at')->get(),
             'recommended' => Student::RECOMMENDED_SAMPLES,
+            'modelVersion' => config('services.absensi_api.face_model_version'),
+            'embeddingDim' => (int) config('services.absensi_api.embedding_dim'),
+        ]);
+    }
+
+    /**
+     * Absensi wajah langsung dari browser.
+     *
+     * Halaman ini bertindak sebagai PERANGKAT KIOS: ia pairing sekali
+     * memakai kode 8 digit dari `/admin/devices`, lalu memanggil
+     * `POST /v1/kiosk/recognize` yang sudah ada.
+     *
+     * Sengaja BUKAN endpoint baru khusus dashboard. Endpoint kios sudah
+     * memuat seluruh aturan yang teruji — jendela jam masuk/pulang, jeda
+     * antar-scan, ambang kemiripan, margin kembar, anti-replay nonce,
+     * pencatatan device_id, dan pemicu notifikasi wali. Menyalinnya untuk
+     * jalur web berarti dua salinan aturan yang bisa menyimpang, dan
+     * absensi yang berbeda hanya karena alatnya berbeda.
+     *
+     * Controller ini tidak memegang kredensial perangkat apa pun: token
+     * pairing lahir dan tinggal di browser. Yang dikirim ke view hanya
+     * alamat API publik dan versi model.
+     */
+    public function scan(): View
+    {
+        return view('backend.biometric.scan', [
+            // Alamat yang dipanggil BROWSER, jadi harus alamat publik —
+            // bukan `http://api:8080` yang hanya berarti sesuatu di dalam
+            // jaringan container.
+            'apiBase' => rtrim((string) config('services.absensi_api.public_url'), '/'),
             'modelVersion' => config('services.absensi_api.face_model_version'),
             'embeddingDim' => (int) config('services.absensi_api.embedding_dim'),
         ]);
