@@ -209,20 +209,21 @@
             <div class="card card-flush border border-gray-200">
                 <div class="card-header pt-5">
                     <h3 class="card-title fw-bold d-block">
-                            Riwayat Sesi Ini
+                            Riwayat Hari Ini
                             <span class="d-block fs-9 fw-normal text-muted">
-                                hanya sejak halaman ini dibuka — bukan riwayat absensi siswa
+                                absensi tercatat hari ini di sekolah ini
                             </span>
                         </h3>
                     <div class="card-toolbar">
-                        <span id="counter" class="badge badge-light">0 absensi / 0 scan</span>
-                        {{-- Riwayat ini hanya milik sesi browser ini (tidak disimpan
-                             di server), jadi menghapusnya aman: yang dibersihkan
-                             cuma tampilan, bukan data absensi. --}}
-                        <button type="button" id="btnHapusRiwayat"
-                                class="btn btn-sm btn-light-danger ms-2 py-1 px-3 fs-9">
-                            Hapus riwayat
-                        </button>
+                        <span id="counter" class="badge badge-light">0 absensi</span>
+                        {{-- Daftar ini datang dari server (GET /admin/attendances/live), jadi
+                                 isinya absensi hari ini — bukan hanya pemindaian sejak
+                                 halaman dibuka. Karena itu tidak ada tombol "hapus":
+                                 yang tampil adalah data, bukan catatan layar. --}}
+                            <button type="button" id="btnMuatRiwayat"
+                                    class="btn btn-sm btn-light ms-2 py-1 px-3 fs-9">
+                                Muat ulang
+                            </button>
                     </div>
                 </div>
                 <div class="card-body pt-3 p-0">
@@ -685,50 +686,57 @@
          * berhenti; yang gagal menunggu ditutup, karena perlu tindakan.
 
          */
-
-        // Bersihkan riwayat sesi (tampilan saja).
-
-        const btnHapusRiwayat = document.getElementById('btnHapusRiwayat');
-
-        if (btnHapusRiwayat) {
-
-            btnHapusRiwayat.addEventListener('click', async function () {
-                    // Konfirmasi dulu. Yang dihapus hanya tampilan, tetapi tanpa
-                    // konfirmasi tombol ini mudah tersenggol dan operator kehilangan
-                    // catatan pemindaian yang baru saja ia amati.
-                    if (window.Swal) {
-                        const r = await Swal.fire({
-                            title: 'Hapus riwayat sesi ini?',
-                            html: 'Daftar pemindaian di layar ini dibersihkan.<br>'
-                                  + '<b>Data absensi siswa tidak terpengaruh</b> — '
-                                  + 'riwayat ini tidak pernah dikirim ke server.',
-                            icon: 'question',
-                            showCancelButton: true,
-                            confirmButtonText: 'Hapus',
-                            cancelButtonText: 'Batal',
-                            confirmButtonColor: '#dc2626',
-                            reverseButtons: true,
-                        });
-                        if (!r.isConfirmed) return;
-                    } else if (!confirm('Hapus riwayat sesi ini? Data absensi siswa tidak terpengaruh.')) {
+            /**
+             * Muat absensi HARI INI dari server.
+             *
+             * Panel ini sebelumnya hanya mencatat pemindaian sejak halaman dibuka,
+             * sehingga setelah halaman dimuat ulang ia menampilkan "0" walau siswa
+             * sudah absen — terbaca seolah absensinya hilang. Sumbernya kini endpoint
+             * yang sudah dipakai layar monitoring, jadi tidak ada logika baru di server.
+             */
+            async function muatRiwayatHariIni() {
+                const body = el('logBody');
+                try {
+                    const res = await fetch(@json(route('attendances.live')), {
+                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+                    if (!res.ok) return;                 // mis. tanpa izin view_attendance
+                    const json = await res.json();
+                    const items = json.items || [];
+                    el('counter').textContent = items.length + ' absensi';
+                    if (!items.length) {
+                        body.innerHTML = '<tr><td colspan="3" class="text-center text-muted fs-8 py-6">'
+                            + 'Belum ada absensi hari ini.</td></tr>';
                         return;
                     }
+                    body.innerHTML = '';
+                    items.forEach(function (it) {
+                        const tr = document.createElement('tr');
+                        const td = document.createElement('td');
+                        td.className = 'ps-4 py-3';
+                        const jam = [];
+                        if (it.check_in) jam.push('masuk ' + it.check_in);
+                        if (it.check_out) jam.push('pulang ' + it.check_out);
+                        td.innerHTML = '<span class="fw-semibold fs-7 d-block">'
+                            + (it.student_name || '-')
+                            + ' <span class="badge badge-light fs-9 ms-1">' + (it.status_label || it.status || '') + '</span>'
+                            + '</span><span class="text-muted fs-9">'
+                            + (it.classroom_name ? it.classroom_name + ' - ' : '')
+                            + jam.join(' - ')
+                            + '</span>';
+                        tr.append(td);
+                        body.append(tr);
+                    });
+                } catch (e) {
+                    /* Gagal memuat riwayat bukan alasan menghentikan pemindaian. */
+                }
+            }
 
-                const body = el('logBody');
+            const btnMuatRiwayat = document.getElementById('btnMuatRiwayat');
+            if (btnMuatRiwayat) btnMuatRiwayat.addEventListener('click', muatRiwayatHariIni);
+            muatRiwayatHariIni();
 
-                body.innerHTML = '<tr><td colspan="3" class="text-center text-muted fs-8 py-6">Belum ada scan.</td></tr>';
-
-                body.dataset.filled = '';
-
-                count = 0;
-
-                count = 0;
-                scanTotal = 0;
-                el('counter').textContent = '0 absensi / 0 scan';
-
-            });
-
-        }
 
 
         function popupHasil(matched, s, a, message, sudahLengkap) {
@@ -867,45 +875,11 @@
             if (key === lastKey) return;
             lastKey = key;
 
-            scanTotal += 1;
-            if (berhasilBaru) count += 1;
-            el('counter').textContent = count + ' absensi / ' + scanTotal + ' scan';
-
-            // Dipasang sekali; handler-nya di bawah, dekat tombolnya.
-
-
-            const body = el('logBody');
-            if (body.dataset.filled !== '1') { body.innerHTML = ''; body.dataset.filled = '1'; }
-
-            const tr = document.createElement('tr');
-            const cell = document.createElement('td');
-            cell.className = 'ps-4 py-3';
-
-            const nm = document.createElement('span');
-            nm.className = 'fw-semibold fs-7 d-block';
-            nm.textContent = s ? s.full_name : 'Tidak dikenali';
-
-            const meta = document.createElement('span');
-            meta.className = 'text-muted fs-9';
-            meta.textContent = (s && s.classroom_name ? s.classroom_name + ' - ' : '')
-                + new Date().toLocaleTimeString('id-ID')
-                + (message ? ' - ' + message : '');
-            // Keterangan 'toleh kanan/kiri' dibuang: tantangan tiga langkah sudah
-            // tidak dipakai, jadi arah itu tidak lagi berarti apa pun.
-
-            // Lencana keadaan supaya jelas mengapa daftar bisa lebih panjang
-            // daripada jumlah absensi.
-            const tanda = document.createElement('span');
-            tanda.className = 'badge fs-9 ms-2 '
-                + (berhasilBaru ? 'badge-light-success'
-                   : sudahLengkap ? 'badge-light-warning' : 'badge-light-danger');
-            tanda.textContent = berhasilBaru ? 'tercatat'
-                : sudahLengkap ? 'sudah lengkap' : 'ditolak';
-            nm.append(tanda);
-
-            cell.append(nm, meta);
-            tr.append(cell);
-            body.prepend(tr);
+            // Penghitung diisi muatRiwayatHariIni() dari data server.
+            // Daftar riwayat tidak lagi disusun di sini: ia dimuat dari server
+            // supaya menampilkan absensi HARI INI, termasuk yang tercatat sebelum
+            // halaman ini dibuka.
+            muatRiwayatHariIni();
         }
 
         window.addEventListener('pagehide', function () {
