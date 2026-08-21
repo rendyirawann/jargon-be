@@ -9,7 +9,7 @@ jargon-be/
 ├── api/      API Rust (Axum) + OpenAPI/Swagger + worker latar
 ├── admin/    Dashboard /admin (Laravel 12 + Octane + Redis)
 ├── infra/    docker-compose, nginx, init PostgreSQL
-└── docs/     ARCHITECTURE.md, DEPLOYMENT.md
+└── docs/     ARCHITECTURE.md, DEPLOYMENT.md, UPGRADE.md
 ```
 
 ## Mulai cepat
@@ -30,6 +30,10 @@ Login pertama: `superadmin` / `Superadmin#2026` — **ganti segera**.
 
 Pemasangan manual, onboarding sekolah, dan penyetelan produksi:
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+Menaikkan versi server yang **sudah berjalan** — bukan memasang dari nol:
+[`docs/UPGRADE.md`](docs/UPGRADE.md). Dipisah karena pembaruan punya
+bahaya yang tidak ada pada pemasangan baru: ada data yang bisa hilang.
 
 ## Dua service, satu database
 
