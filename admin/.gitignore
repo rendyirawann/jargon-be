@@ -24,3 +24,10 @@ Homestead.yaml
 Thumbs.db
 rr
 .rr.yaml
+
+# Cadangan .env buatan tangan saat pembaruan. Pola `.env` saja tidak
+# menangkapnya, sehingga `git add -A` pernah nyaris mengikutkan kredensial
+# basis data dan JWT ke dalam commit.
+.env.bak*
+.env.backup*
+.env.save*

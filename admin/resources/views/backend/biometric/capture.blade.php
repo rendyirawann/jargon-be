@@ -69,7 +69,8 @@
     </div>
 
     {{-- Langkah-langkah, dengan yang sudah selesai ditandai. --}}
-    <div class="card card-flush border border-gray-200 mb-5">
+    <div class="card card-flush border border-gray-200 mb-5" id="kartuLangkah"
+         data-target="{{ $berikut }}" data-lengkap="{{ $lengkap ? 1 : 0 }}">
         <div class="card-body p-4">
             <div class="d-flex flex-wrap gap-3">
                 @foreach ($urutan as $pose => $info)
@@ -117,7 +118,7 @@
                         {{ $lengkap ? 'Tambah Sampel' : 'Langkah: '.$urutan[$berikut]['label'] }}
                     </h3>
                     <div class="card-toolbar">
-                        <span class="badge badge-light-primary fs-8">
+                        <span class="badge badge-light-primary fs-8" id="badgeSampel">
                             {{ $student->face_sample_count }} sampel
                         </span>
                     </div>
@@ -211,7 +212,7 @@
                 </div>
             </div>
 
-            <div class="card card-flush border border-gray-200">
+            <div class="card card-flush border border-gray-200" id="kartuSampel">
                 <div class="card-header pt-5"><h3 class="card-title fw-bold">Sampel Tersimpan</h3></div>
                 <div class="card-body pt-3">
                     @forelse ($samples as $s)
@@ -249,15 +250,15 @@
         hanya sebagai "sistemnya kurang akurat".
     --}}
     <script src="{{ asset('assets/vendor/face-api/face-api.min.js') }}"></script>
-    <script src="{{ asset('assets/js/jargon-face.js') }}"></script>
+    <script src="{{ asset('assets/js/jargon-face.js') }}?v={{ filemtime(public_path('assets/js/jargon-face.js')) }}"></script>
     <script>
         (function () {
             'use strict';
 
             const MODEL_BASE  = @json(asset('assets/models/face-api'));
             const EMB_DIM     = {{ $embeddingDim }};
-            const TARGET      = @json($berikut);        // null bila sudah lengkap
-            const LENGKAP     = @json($lengkap);
+            let TARGET        = @json($berikut);        // null bila sudah lengkap
+            let LENGKAP      = @json($lengkap);
 
             const video   = document.getElementById('video');
             const canvas  = document.getElementById('canvas');
@@ -422,7 +423,7 @@
                 return canvas;
             }
 
-            function kirim(descriptor, pose) {
+            async function kirim(descriptor, pose) {
                 dikirim = true;
                 if (timer) { clearInterval(timer); timer = null; }
 
@@ -448,7 +449,101 @@
                 hint.textContent = '';
                 tunjukArah(null, false);
                 setStatus('Menyimpan sampel ' + JargonFace.poseLabel(pose) + '...', 'ok');
-                form.submit();
+                await simpanSampel();
+            }
+
+            /**
+             * Simpan sampel lewat AJAX.
+             *
+             * Sebelumnya memakai form.submit(), sehingga setiap sampel memuat
+             * ulang halaman: kamera mati lalu dinyalakan lagi, model face-api
+             * dimuat ulang, dan operator menunggu 2-3 detik di antara pose.
+             * Untuk tiga pose per siswa dan ratusan siswa, itu menumpuk.
+             *
+             * Bila fetch gagal (jaringan mati, JS diblokir), jatuh ke
+             * form.submit() seperti semula — hidden input embedding masih ada
+             * di form, jadi jalur lama tetap utuh.
+             */
+            async function simpanSampel() {
+                try {
+                    const res = await fetch(form.action, {
+                        method: 'POST',
+                        body: new FormData(form),
+                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+                    const data = await res.json().catch(() => ({}));
+
+                    if (!res.ok) {
+                        const pesan = data.message
+                            || (data.errors ? Object.values(data.errors).flat().join(' ')
+                                            : 'Gagal menyimpan sampel (HTTP ' + res.status + ').');
+                        setStatus('Gagal: ' + pesan, 'error');
+                        lanjutkan(false);
+                        return;
+                    }
+
+                    const badge = document.getElementById('badgeSampel');
+                    if (badge && data.sample_count !== undefined) {
+                        badge.textContent = data.sample_count + ' sampel';
+                    }
+                    if (window.toastr) {
+                        toastr.success(data.message || 'Sampel tersimpan.');
+                    }
+                    await segarkanPanel();
+                    lanjutkan(true);
+                } catch (e) {
+                    form.submit();
+                }
+            }
+
+            /**
+             * Ambil ulang halaman ini lalu tukar dua kartu yang berubah:
+             * penanda langkah dan daftar sampel.
+             *
+             * Sengaja memakai HTML dari server, bukan membangun ulang di JS:
+             * logika "pose mana yang berikutnya" ada di Blade, dan menduplikasinya
+             * di dua tempat adalah cara termudah membuat keduanya menyimpang.
+             * Pose berikutnya dibaca dari data-attribute kartu yang baru.
+             */
+            async function segarkanPanel() {
+                try {
+                    const r = await fetch(location.href, {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+                    const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+                    ['kartuLangkah', 'kartuSampel'].forEach(function (id) {
+                        const baru = doc.getElementById(id);
+                        const lama = document.getElementById(id);
+                        if (baru && lama) lama.replaceWith(baru);
+                    });
+                    const k = document.getElementById('kartuLangkah');
+                    if (k) {
+                        TARGET  = k.dataset.target || null;
+                        LENGKAP = k.dataset.lengkap === '1';
+                    }
+                } catch (e) {
+                    /* Panel gagal disegarkan bukan alasan menghentikan kamera. */
+                }
+            }
+
+            /** Siapkan putaran berikutnya tanpa memuat ulang halaman. */
+            function lanjutkan(sukses) {
+                streak.reset();
+                document.getElementById('preview').classList.add('d-none');
+                document.querySelectorAll('input[name^="embedding["]').forEach((el) => el.remove());
+                dikirim = false;
+
+                if (LENGKAP) {
+                    poseSel.classList.remove('d-none');
+                    btnMan.disabled = false;
+                    setStatus('Semua pose tersimpan. Pilih pose bila ingin menambah sampel.', 'ok');
+                } else if (sukses) {
+                    setStatus('Lanjut: ' + petunjuk(wanted()) + '.', 'ok');
+                }
+                tunjukArah(wanted(), false);
+                if (!timer) timer = setInterval(tick, 220);
             }
 
             // Jalan darurat bila deteksi arah tidak mau lolos — mis. kamera

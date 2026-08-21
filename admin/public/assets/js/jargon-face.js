@@ -50,7 +50,11 @@
      * benar-benar simetris, dan menuntut 0 akan membuat langkah "hadap
      * depan" terasa mustahil diselesaikan.
      */
-    var YAW_FRONTAL_MAX = 0.14;
+    var YAW_FRONTAL_MAX = 0.22;   // dilonggarkan 21 Agt 2026: wajah lurus di
+                                  // webcam laptop terbaca ~0.20 (kamera tidak
+                                  // tepat di tengah + wajah tidak simetris),
+                                  // sehingga 0.14 membuat langkah "hadap depan"
+                                  // tidak pernah bisa diselesaikan.
 
     /**
      * Batas yaw untuk menyatakan kepala SUDAH menoleh.
@@ -59,7 +63,9 @@
      * ambigu yang membuat status berkedip-kedip antara "depan" dan
      * "menoleh".
      */
-    var YAW_TURN_MIN = 0.30;
+    var YAW_TURN_MIN = 0.36;      // dinaikkan seiring YAW_FRONTAL_MAX agar celah
+                                  // "antara" tetap lebar (0.22 -> 0.36) dan
+                                  // status tidak berkedip saat kepala bergerak.
 
     /**
      * Arah tanda yaw.

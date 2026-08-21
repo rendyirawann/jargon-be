@@ -9,6 +9,7 @@ use App\Models\Student;
 use App\Services\AbsensiApi;
 use App\Support\Tenant;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -136,7 +137,7 @@ class FaceEnrollmentController extends Controller implements HasMiddleware
     /**
      * Terima gambar + embedding dari browser lalu teruskan ke API.
      */
-    public function store(Request $request, Student $student): RedirectResponse
+    public function store(Request $request, Student $student): RedirectResponse|JsonResponse
     {
         Tenant::authorizeSchool($student->school_id);
 
@@ -163,22 +164,66 @@ class FaceEnrollmentController extends Controller implements HasMiddleware
             AbsensiApi::tokenFromSession(),
             $student->id,
             $data['image_base64'],
-            array_map('floatval', $data['embedding']),
+            self::urutkanEmbedding($data['embedding']),
             $data['model_version'],
             $data['pose'],
         );
 
         if (! $result['success']) {
+            // Halaman pengambilan menyimpan lewat AJAX agar kamera tidak mati;
+            // galat harus kembali sebagai JSON, bukan redirect.
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $result['message'],
+                    'errors' => $result['errors'] ?: [],
+                ], 422);
+            }
+
             return back()->withErrors($result['errors'] ?: ['image_base64' => $result['message']]);
         }
 
         $payload = $result['data'] ?? [];
         $count = $payload['sample_count'] ?? 0;
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $result['message'],
+                'sample_count' => $count,
+                'pose' => $data['pose'],
+            ]);
+        }
+
         return redirect()
             ->route('biometric.capture', $student)
             ->with('success', $result['message'])
             ->with('sample_count', $count);
+    }
+
+    /**
+     * Rapikan embedding menjadi LIST float berurutan indeks.
+     *
+     * Dua hal yang membuat ini perlu, dan dua-duanya tidak kelihatan dari kode
+     * pemanggilnya:
+     *
+     * 1. Kunci hasil `$request->validate()` untuk aturan `embedding.*` tidak
+     *    dijamin urut angka. Bila urutannya jadi urut-string (0,1,10,100,...,11)
+     *    atau ada yang bolong, `json_encode` memandangnya OBJEK, bukan array.
+     *    API (Rust/serde) lalu menolak dengan
+     *    "embedding: invalid type: map, expected a sequence".
+     * 2. Urutan angka embedding adalah MAKNANYA. Memakai array_values() saja
+     *    tanpa ksort() akan mengirim vektor yang teracak tanpa galat apa pun —
+     *    pencocokan wajah jadi salah secara diam-diam. Karena itu ksort dulu.
+     *
+     * @param  array<int|string, mixed>  $embedding
+     * @return list<float>
+     */
+    private static function urutkanEmbedding(array $embedding): array
+    {
+        ksort($embedding, SORT_NUMERIC);
+
+        return array_values(array_map('floatval', $embedding));
     }
 
     public function show(Student $student): View

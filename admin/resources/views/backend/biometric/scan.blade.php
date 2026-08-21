@@ -197,7 +197,7 @@
 
 @push('scripts')
     <script src="{{ asset('assets/vendor/face-api/face-api.min.js') }}"></script>
-    <script src="{{ asset('assets/js/jargon-face.js') }}"></script>
+    <script src="{{ asset('assets/js/jargon-face.js') }}?v={{ filemtime(public_path('assets/js/jargon-face.js')) }}"></script>
     <script>
     (function () {
         'use strict';
